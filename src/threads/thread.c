@@ -73,7 +73,7 @@ static tid_t allocate_tid (void);
 static bool thread_priority_comparison(struct list_elem *a, const struct list_elem *b, void *aux);
 
 
-//////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*
 Implementing Priority Scheduling below
 */
@@ -85,7 +85,7 @@ static bool thread_priority_comparison(struct list_elem *a, const struct list_el
    return ((threadA->priority) > (threadB->priority));
 }
 // Implement ordered insertion to thread_unblock() and thread_yield()
-///////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -354,6 +354,13 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+   /*Once we have set the new priority, we gotta check whether to yield to next process */   
+   struct thread *next_thread = next_thread_to_run();                                  //Get the current thread
+   if (next_thread->priority() > new_priority){                                  //Compare the priority of current and new
+      thread_yield();
+   }
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 }
 
 /* Returns the current thread's priority. */
