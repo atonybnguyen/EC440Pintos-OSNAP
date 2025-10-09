@@ -24,7 +24,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: itsbushie
+          username: atonybnguyen
           password: ${{ secrets.GHCR_PAT }}
 
       # Set up pintos directory
