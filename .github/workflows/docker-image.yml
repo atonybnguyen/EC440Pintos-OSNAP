@@ -42,7 +42,7 @@ jobs:
             --rm \
             -e BXSHARE='/home/BUOS/toolchain/x86_64/share/bochs' \
             --mount type=bind,source="$(pwd)/pintos",target=/home/BUOS/pintos \
-            ghcr.io/itsbushie/pintos:latest \
+            ghcr.io/atonybnguyen/pintos:latest \
             /bin/bash -c " \
               cd /home/BUOS/pintos && \
               source setup.sh && \
