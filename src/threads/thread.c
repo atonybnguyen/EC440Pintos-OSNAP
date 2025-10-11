@@ -78,7 +78,7 @@ static bool thread_priority_comparison(struct list_elem *a, const struct list_el
 Implementing Priority Scheduling below
 */
 
-static bool thread_priority_comparison(struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
    struct thread *threadA = list_entry(a, struct thread, elem);
    struct thread *threadB = list_entry(b, struct thread, elem);
 
@@ -258,7 +258,7 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
    //Making sure our list is still ordered with ordered insert
-  list_insert_ordered (ready_list, t->elem, thread_priority_comparison, NULL);
+  list_insert_ordered (&ready_list, &t->elem, thread_priority_comparison, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -330,7 +330,7 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) 
      //When inserting the current thread, make sure that it is placed in order
-    list_insert_ordered (ready_list, cur->elem, thread_priority_comparison, NULL);
+    list_insert_ordered (&ready_list, &cur->elem, thread_priority_comparison, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
