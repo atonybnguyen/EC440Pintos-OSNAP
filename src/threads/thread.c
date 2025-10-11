@@ -217,6 +217,10 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* If the newly created thread is of higher priority than the current thread, we should yield */
+  if (thread_current()->priority < priority)
+  thread_yield();
+
   return tid;
 }
 
@@ -325,7 +329,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-     //When inserting the current thread, make sure that it is scheduled
+     //When inserting the current thread, make sure that it is placed in order
     list_insert_ordered (&ready_list, &cur->elem, thread_priority_comparison, NULL);
   cur->status = THREAD_READY;
   schedule ();
@@ -353,7 +357,8 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *current = thread_current();
+  current->priority = new_priority;
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
    /*Once we have set the new priority, we gotta check whether to yield to next process */   
    struct thread *next_thread = next_thread_to_run();                                  //Get the current thread
