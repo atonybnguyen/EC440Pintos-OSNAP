@@ -4,6 +4,9 @@
 #include <list.h>
 #include <stdbool.h>
 
+
+static bool thread_semaphore_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+
 /* A counting semaphore. */
 struct semaphore 
   {
