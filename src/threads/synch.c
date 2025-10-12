@@ -49,15 +49,15 @@ static bool thread_priority_comparison(const struct list_elem *a, const struct l
 static bool thread_semaphore_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
    // Setting up the two semaphore for comp.
    struct semaphore_elem *semaphore_a = list_entry(a, struct semaphore_elem, elem);
-   struct semaphore_elem *semaphore_a = list_entry(a, struct semaphore_elem, elem);
+   struct semaphore_elem *semaphore_b = list_entry(a, struct semaphore_elem, elem);
 
    //Then getting the element from the list
    struct list_elem *elem_a = list_front(&semaphore_a->semaphore.waiters);
    struct list_elem *elem_b = list_front(&semaphore_b->semaphore.waiters);
 
    //Getting top threads
-   struct thread *threadA = list_entry(elem_A, struct thread, elem);
-   struct thread *threadB = list_entry(elem_B, struct thread, elem);
+   struct thread *threadA = list_entry(elem_a, struct thread, elem);
+   struct thread *threadB = list_entry(elem_b, struct thread, elem);
 
    //Comparison of a > b
    return threadA->priority > threadB->priority;
@@ -157,7 +157,9 @@ sema_up (struct semaphore *sema)
    
    //Now we need to check if the unblocked thread has a higher priority than the current one
    //If it is higher, it should be at the start of the list
-   if (!intr_context() && (next_thread_to_run()->priority > running_thread()->priority)){
+   struct thread *next_thread = next_thread_to_run();
+   struct thread *current_thread = running_thread()'
+   if (!intr_context() && (next_thread->priority > current_thread->priority)){
       thread_yield();
    }
 }
@@ -358,11 +360,12 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!list_empty (&cond->waiters)) 
+  if (!list_empty (&cond->waiters)){
    //Sorting the waiters whenever we get the chance
     list_sort(&cond->waiters, compare_semaphore_priority, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
+  }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
