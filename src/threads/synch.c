@@ -154,12 +154,11 @@ sema_up (struct semaphore *sema)
    
   sema->value++;
   intr_set_level (old_level);
-   
+
+   //Need to implement!
    //Now we need to check if the unblocked thread has a higher priority than the current one
    //If it is higher, it should be at the start of the list
-   struct thread *next_thread = next_thread_to_run();
-   struct thread *current_thread = running_thread();
-   if (!intr_context() && (next_thread->priority > current_thread->priority)){
+   if (!intr_context()){
       thread_yield();
    }
 }
