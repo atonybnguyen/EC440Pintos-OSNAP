@@ -97,7 +97,7 @@ struct thread
     int base_priority;                  // Base priority of current thread
     struct list donors;                  // List of threads that are donating
     struct list_elem donor_elem;        // Element of the donor list
-    struct lock *waiting_on;  `         // The lock that our thread is waiting on
+    struct lock *waiting_on;            // The lock that our thread is waiting on
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
