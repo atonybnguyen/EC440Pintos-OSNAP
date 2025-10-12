@@ -48,6 +48,7 @@ static bool thread_priority_comparison(const struct list_elem *a, const struct l
 
 static bool thread_semaphore_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
    // Setting up the two semaphore for comp.
+   //list_entry (list_pop_front (&sema->waiters), struct thread, elem)
    struct semaphore_elem *semaphore_a = list_entry(a, struct semaphore_elem, elem);
    struct semaphore_elem *semaphore_b = list_entry(b, struct semaphore_elem, elem);
 
@@ -60,7 +61,7 @@ static bool thread_semaphore_comparison(const struct list_elem *a, const struct 
    struct thread *threadB = list_entry(elem_b, struct thread, elem);
 
    //Comparison of a > b
-   return threadA->priority > threadB->priority;
+   return (threadA->priority) > (threadB->priority);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
