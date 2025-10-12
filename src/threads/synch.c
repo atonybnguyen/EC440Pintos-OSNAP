@@ -49,7 +49,7 @@ static bool thread_priority_comparison(const struct list_elem *a, const struct l
 static bool thread_semaphore_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
    // Setting up the two semaphore for comp.
    struct semaphore_elem *semaphore_a = list_entry(a, struct semaphore_elem, elem);
-   struct semaphore_elem *semaphore_b = list_entry(a, struct semaphore_elem, elem);
+   struct semaphore_elem *semaphore_b = list_entry(b, struct semaphore_elem, elem);
 
    //Then getting the element from the list
    struct list_elem *elem_a = list_front(&semaphore_a->semaphore.waiters);
@@ -147,7 +147,7 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)){
-     list_sort(&sema->waiters, thread_priority_comparison. NULL);      //Sorting waiters based on their priority
+     list_sort(&sema->waiters, thread_priority_comparison, NULL);      //Sorting waiters based on their priority
      thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
   }
    
@@ -361,7 +361,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)){
    //Sorting the waiters whenever we get the chance
-    list_sort(&cond->waiters, thread_semaphore_priority, NULL);
+    list_sort(&cond->waiters, thread_semaphore_comparison, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
   }
