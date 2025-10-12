@@ -32,6 +32,39 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/* Implement priority here too, taken from thread.c*/
+static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+   struct thread *threadA = list_entry(a, struct thread, elem);
+   struct thread *threadB = list_entry(b, struct thread, elem);
+
+   return ((threadA->priority) > (threadB->priority));
+}
+
+/* Implement comparison for semaphores too */
+
+static bool thread_semaphore_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+   // Setting up the two semaphore for comp.
+   struct semaphore_elem *semaphore_a = list_entry(a, struct semaphore_elem, elem);
+   struct semaphore_elem *semaphore_a = list_entry(a, struct semaphore_elem, elem);
+
+   //Then getting the element from the list
+   struct list_elem *elem_a = list_front(&semaphore_a->semaphore.waiters);
+   struct list_elem *elem_b = list_front(&semaphore_b->semaphore.waiters);
+
+   //Getting top threads
+   struct thread *threadA = list_entry(elem_A, struct thread, elem);
+   struct thread *threadB = list_entry(elem_B, struct thread, elem);
+
+   //Comparison of a > b
+   return threadA->priority > threadB->priority;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -113,11 +146,20 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
+  if (!list_empty (&sema->waiters)){
+     list_sort(&sema->waiters, thread_priority_comparison. NULL);      //Sorting waiters based on their priority
+     thread_unblock (list_entry (list_pop_front (&sema->waiters),      
                                 struct thread, elem));
+  }
+   
   sema->value++;
   intr_set_level (old_level);
+   
+   //Now we need to check if the unblocked thread has a higher priority than the current one
+   //If it is higher, it should be at the start of the list
+   if (!intr_context() && (next_thread_to_run()->priority > running_thread()->priority)){
+      thread_yield();
+   }
 }
 
 static void sema_test_helper (void *sema_);
@@ -317,6 +359,8 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) 
+   //Sorting the waiters whenever we get the chance
+    list_sort(&cond->waiters, compare_semaphore_priority, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
 }
