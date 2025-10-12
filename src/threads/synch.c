@@ -158,7 +158,7 @@ sema_up (struct semaphore *sema)
    //Now we need to check if the unblocked thread has a higher priority than the current one
    //If it is higher, it should be at the start of the list
    struct thread *next_thread = next_thread_to_run();
-   struct thread *current_thread = running_thread()'
+   struct thread *current_thread = running_thread();
    if (!intr_context() && (next_thread->priority > current_thread->priority)){
       thread_yield();
    }
@@ -362,7 +362,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)){
    //Sorting the waiters whenever we get the chance
-    list_sort(&cond->waiters, compare_semaphore_priority, NULL);
+    list_sort(&cond->waiters, thread_semaphore_priority, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
   }
