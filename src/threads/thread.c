@@ -233,7 +233,7 @@ thread_create (const char *name, int priority,
   thread_unblock (t);
 
   /* If the newly created thread is of higher priority than the current thread, we should yield */
-  if (thread_current()->priority < priority)
+  if (!thread_mlfqs && thread_current()->priority < priority)
   thread_yield();
 
   return tid;
@@ -390,8 +390,11 @@ thread_set_priority (int new_priority)
    
    /*Once we have set the new priority, we gotta check whether to yield to next process */   
    struct thread *next_thread = next_thread_to_run();                                  //Get the current thread
-   if (next_thread->priority > new_priority){                                  //Compare the priority of current and new
-      thread_yield();
+   if (!list_empty(&ready_list)){
+      struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
+      if ((front->priority)>(current->priority)){
+         thread_yield();
+      }
    }
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 }
