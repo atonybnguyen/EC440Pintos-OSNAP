@@ -71,6 +71,65 @@ static bool thread_semaphore_comparison(const struct list_elem *a, const struct 
    return (threadA->priority) > (threadB->priority);
 }
 
+
+static void donate_priority(struct lock *lock){
+
+   //Setting up variables we will need
+   struct thread *current = thread_current();
+   struct thread *holder = lock->holder;
+   int depth = 0;
+   const int limit = 0;
+
+   //Identifying the lock we are waiting on
+   current->waiting_on = lock;
+
+   //NESTED DONATING
+   //While the lock is being held and we are still within the limit for depth
+   while (holder != NULL && (depth < limit)){
+      //If current thread has a higher priority, then donate it to the holder of the lock
+      if (current->priority > holder->priority){
+         holder->priority = current->priority;
+
+         //If the holder is waiting for a lock, then we chain them
+         if (holder->waiting_on != NULL){
+            holder = holder->waiting_on->holder;
+         }else{
+            break;
+         }
+      }
+
+      //Break out if the current thread is NOT higher prio than the holder of the lock
+      else{
+         break;
+      }
+      depth++;
+   }
+
+   //Add the current thread to the lock holder's donor list
+   if (lock->holder != NULL){
+      list_push_back(&lock->holder->donors, &current->donor_elem);
+   }
+}
+
+
+
+static void remove_priority(struct lock *lock){
+   struct thread *current = thread_current();
+   struct list_elem *donators;
+   
+   donators = list_begin(&current->donors);
+   while (donators != list_end(&current->donors)){
+      struct thread *donor = list_entry(donators, struct thread, donor_elem);
+      if (donor->waiting_on == lock){
+         donators = list_remove(donators);
+         donor->waiting_on = NULL;
+      }else{
+         donators = list_next(donators);
+      }
+   }
+   update_priority(current);
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
