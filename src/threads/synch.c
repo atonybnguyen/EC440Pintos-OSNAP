@@ -78,7 +78,7 @@ static void donate_priority(struct lock *lock){
    struct thread *current = thread_current();
    struct thread *holder = lock->holder;
    int depth = 0;
-   const int limit = 0;
+   const int limit = 8;
 
    //Identifying the lock we are waiting on
    current->waiting_on = lock;
@@ -92,6 +92,7 @@ static void donate_priority(struct lock *lock){
 
          //If the holder is waiting for a lock, then we chain them
          if (holder->waiting_on != NULL){
+            lock = holder->waiting_on;
             holder = holder->waiting_on->holder;
          }else{
             break;
@@ -107,7 +108,7 @@ static void donate_priority(struct lock *lock){
 
    //Add the current thread to the lock holder's donor list
    if (lock->holder != NULL){
-      list_push_back(&lock->holder->donors, &current->donor_elem);
+      list_insert_ordered(&lock->holder->donors, &current->donor_elem, thread_priority_comparison, NULL);
    }
 }
 
@@ -117,7 +118,6 @@ static void remove_priority(struct lock *lock){
    struct thread *current = thread_current();
    struct list_elem *donators;
    
-   donators = list_begin(&current->donors);
    while (donators != list_end(&current->donors)){
       struct thread *donor = list_entry(donators, struct thread, donor_elem);
       if (donor->waiting_on == lock){
