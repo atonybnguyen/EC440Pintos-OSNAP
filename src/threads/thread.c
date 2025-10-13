@@ -76,7 +76,7 @@ void update_priority(struct thread *t);
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void update_priority(struct thread *t){
 //Saving the actual priority for use later
-   t->priority = t->base_priority
+   t->priority = t->base_priority;
 
 //If the thread is already inheriting from another, organize the list of donor so that the highest would be first
    if (!list_empty(&t->donors)){
