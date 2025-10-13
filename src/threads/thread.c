@@ -71,8 +71,22 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
+void update_priority(struct thread *t);
 
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void update_priority(struct thread *t){
+//Saving the actual priority for use later
+   t->priority = t->base_priority
 
+//If the thread is already inheriting from another, organize the list of donor so that the highest would be first
+   if (!list_empty(&t->donors)){
+      list_sort(&t->donors, compare_thread_priority,NULL);            //Sort so that highest prio thread is first
+      struct thread *highest_prio = list_entry(list_front(&t->donors), struct thread, donor_elem);   //Get the first thread
+      if ((highest_prio->priority) > (t->priority)){               // Compare thread with the donor and if the donor is higher, then inherit prio
+         t->priority = highest_donor->priority;
+      }
+   }
+}
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*
 Implementing Priority Scheduling below
@@ -358,8 +372,11 @@ void
 thread_set_priority (int new_priority) 
 {
   struct thread *current = thread_current();
-  current->priority = new_priority;
+  current->base_priority = new_priority;      //Change base_priority rather than just "priority"
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+   //Updating the current priority with donations in mind
+   update_priority(current);
+   
    /*Once we have set the new priority, we gotta check whether to yield to next process */   
    struct thread *next_thread = next_thread_to_run();                                  //Get the current thread
    if (next_thread->priority > new_priority){                                  //Compare the priority of current and new
@@ -493,7 +510,15 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+   /* updating thread initializing for additional data to support priority donations */
+   t-> base_priority = priority;      //On initializing, set base priority to priority
+   list_init(&t->donors);             //Initializing list for donors
+   t->waiting_on = NULL;              //Just created so no lock to be waiting on
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+   
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
