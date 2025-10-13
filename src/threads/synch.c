@@ -32,7 +32,20 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void update_priority(struct thread *t){
+//Saving the actual priority for use later
+   t->priority = t->base_priority;
 
+//If the thread is already inheriting from another, organize the list of donor so that the highest would be first
+   if (!list_empty(&t->donors)){
+      list_sort(&t->donors, thread_priority_comparison,NULL);            //Sort so that highest prio thread is first
+      struct thread *highest_prio = list_entry(list_front(&t->donors), struct thread, donor_elem);   //Get the first thread
+      if ((highest_prio->priority) > (t->priority)){               // Compare thread with the donor and if the donor is higher, then inherit prio
+         t->priority = highest_prio->priority;
+      }
+   }
+}
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Have to move this here to use it for the semaphore comparison
 /* One semaphore in a list. */
