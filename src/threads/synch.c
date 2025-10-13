@@ -93,7 +93,7 @@ static void donate_priority(struct lock *lock){
          //If the holder is waiting for a lock, then we chain them
          if (holder->waiting_on != NULL){
             lock = holder->waiting_on;
-            holder = holder->waiting_on->holder;
+            holder = lock->holder;
          }else{
             break;
          }
@@ -168,7 +168,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, thread_priority_comparison, NULL);
       thread_block ();
     }
   sema->value--;
@@ -209,26 +209,30 @@ void
 sema_up (struct semaphore *sema) 
 {
   enum intr_level old_level;
-
+   bool yield = false;
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)){
      list_sort(&sema->waiters, thread_priority_comparison, NULL);      //Sorting waiters based on their priority
      thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+
+      if (!intr_context() && !list_empty(&ready_list)){
+      struct thread *current = thread_current();
+      struct thread *top = list_entry(list_front(&ready_list), struct thread, elem);
+      if ((top->priority) > (current->priority)){
+         yield = true;
+      }
+   }
+     
   }
    
   sema->value++;
   intr_set_level (old_level);
 
-   
-   if (!intr_context() && !list_empty(&ready_list)){
-      struct thread *current = thread_current();
-      struct thread *top = list_entry(list_front(&ready_list), struct thread, elem);
-      if ((top->priority) > (current->priority)){
-         thread_yield();
-      }
-   }
+   if (yield){
+      thread_yield();
+   )
 }
 
 static void sema_test_helper (void *sema_);
@@ -307,14 +311,18 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+   //Donate priority
    if (lock->holder != NULL){
       donate_priority(lock);
    }
+
+   //acquire lock
+   sema_down (&lock->semaphore);
+   lock->holder = thread_current ();
+   
    //Once we acquire the lock, it is no longer waiting for the lock
    thread_current()->waiting_on = NULL;
-   
-  sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
