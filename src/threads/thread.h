@@ -92,6 +92,14 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/* implementation to include priority donation */
+    int base_priority;                  // Base priority of current thread
+    struct list donors;                  // List of threads that are donating
+    struct list_elem donor_elem;        // Element of the donor list
+    struct lock *waiting_on;            // The lock that our thread is waiting on
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
