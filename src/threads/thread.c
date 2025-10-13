@@ -275,6 +275,16 @@ thread_unblock (struct thread *t)
    //Making sure our list is still ordered with ordered insert
   list_insert_ordered (&ready_list, &t->elem, thread_priority_comparison, NULL);
   t->status = THREAD_READY;
+
+   //Getting the current thread
+   struct thread *current = thread_current();
+   if (intr_context()){
+      if(!list_empty(&ready_list)){
+         struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
+         if ((front->priority) > (current->priority)){
+            intr_yield_on_return();
+         }
+      }
   intr_set_level (old_level);
 }
 
