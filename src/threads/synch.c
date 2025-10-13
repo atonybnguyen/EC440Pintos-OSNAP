@@ -222,8 +222,12 @@ sema_up (struct semaphore *sema)
   intr_set_level (old_level);
 
    
-   if (!intr_context()){
-      thread_yield();
+   if (!intr_context() && !list_empty(&ready_list)){
+      struct thread *current = thread_current();
+      struct thread *top = list_entry(list_front(&ready_list), struct thread, elem);
+      if ((top->priority) > (current->priority)){
+         thread_yield();
+      }
    }
 }
 
