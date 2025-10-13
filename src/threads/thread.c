@@ -74,20 +74,6 @@ static bool thread_priority_comparison(const struct list_elem *a, const struct l
 void update_priority(struct thread *t);
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void update_priority(struct thread *t){
-//Saving the actual priority for use later
-   t->priority = t->base_priority;
-
-//If the thread is already inheriting from another, organize the list of donor so that the highest would be first
-   if (!list_empty(&t->donors)){
-      list_sort(&t->donors, compare_thread_priority,NULL);            //Sort so that highest prio thread is first
-      struct thread *highest_prio = list_entry(list_front(&t->donors), struct thread, donor_elem);   //Get the first thread
-      if ((highest_prio->priority) > (t->priority)){               // Compare thread with the donor and if the donor is higher, then inherit prio
-         t->priority = highest_donor->priority;
-      }
-   }
-}
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*
 Implementing Priority Scheduling below
 */
@@ -101,6 +87,21 @@ static bool thread_priority_comparison(const struct list_elem *a, const struct l
 // Implement ordered insertion to thread_unblock() and thread_yield()
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/*Adding another function to help with updating the priority if threads can donate priority*/
+void update_priority(struct thread *t){
+//Saving the actual priority for use later
+   t->priority = t->base_priority;
+
+//If the thread is already inheriting from another, organize the list of donor so that the highest would be first
+   if (!list_empty(&t->donors)){
+      list_sort(&t->donors, thread_priority_comparison,NULL);            //Sort so that highest prio thread is first
+      struct thread *highest_prio = list_entry(list_front(&t->donors), struct thread, donor_elem);   //Get the first thread
+      if ((highest_prio->priority) > (t->priority)){               // Compare thread with the donor and if the donor is higher, then inherit prio
+         t->priority = highest_prio->priority;
+      }
+   }
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
