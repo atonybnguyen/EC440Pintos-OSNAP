@@ -99,9 +99,6 @@ struct thread
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    int64_t wakeup_tick;
-    struct list_elem sleepelem;
-
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
