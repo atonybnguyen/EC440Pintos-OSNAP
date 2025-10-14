@@ -90,6 +90,7 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
     int nice;                           /* Define how "nice" the thread is. */
+    fixed_t recent_cpu;                     /* Estimate of the CPU time the thread has used recently */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -107,6 +108,7 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+extern fixed_t load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -138,5 +140,6 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+struct thread *thread_get_highest_priority (void);
 
 #endif /* threads/thread.h */

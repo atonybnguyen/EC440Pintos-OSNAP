@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -58,6 +59,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+fixed_t load_avg;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -95,7 +97,7 @@ thread_init (void)
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
-  init_thread (initial_thread, "main", PRI_DEFAULT, );
+  init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -345,19 +347,77 @@ thread_get_priority (void)
   return thread_current ()->priority;
 }
 
+
+/* Return the highest priority among READY threads.
+   Must be called with interrupts DISABLED. */
+static int
+highest_ready_priority_locked (void) 
+{
+  if (list_empty (&ready_list))
+    return PRI_MIN;
+
+  int best = PRI_MIN;
+  for (struct list_elem *e = list_begin (&ready_list);
+       e != list_end (&ready_list);
+       e = list_next (e)) 
+  {
+    struct thread *t = list_entry (e, struct thread, elem);
+    if (t->priority > best)
+      best = t->priority;
+  }
+  return best;
+}
+
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
-  /* Not yet implemented. */
+  ASSERT (!intr_context());
+
+  /* Clamp input to [-20, 20]. */
+  if (nice > 20)      nice = 20;
+  else if (nice < -20) nice = -20;
+
+  bool need_yield = false;
+
+  enum intr_level old = intr_disable ();
+  struct thread *cur = thread_current ();
+
+  /* Store the new nice value. */
+  cur->nice = nice;
+
+  if (thread_mlfqs) {
+    /* Compute priority = PRI_MAX - (recent_cpu/4) - 2*nice
+       Use fixed-point; truncate recent_cpu/4 to int. */
+    int recent_cpu_div4_int =
+        FP_TO_INT_ZERO (FP_DIV_INT (cur->recent_cpu, 4));
+
+    int new_pri = PRI_MAX - recent_cpu_div4_int - 2 * nice;
+
+    /* Clamp priority to [PRI_MIN, PRI_MAX]. */
+    if (new_pri > PRI_MAX) new_pri = PRI_MAX;
+    if (new_pri < PRI_MIN) new_pri = PRI_MIN;
+
+    cur->priority = new_pri;
+
+    /* If any READY thread now has a higher priority, we should yield. */
+    int best_ready = highest_ready_priority_locked ();
+    if (best_ready > cur->priority)
+      need_yield = true;
+  }
+
+  intr_set_level (old);
+
+  /* Yield outside the critical section. */
+  if (thread_mlfqs && need_yield)
+    thread_yield ();
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;;
 }
 
 /* Returns 100 times the system load average. */
@@ -464,8 +524,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 
-  /*Initialize with nice = 0*/
+  /*Initialize with nice and recent_cpu 0*/
   t->nice = 0;
+  t->recent_cpu = 0;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
