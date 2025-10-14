@@ -277,14 +277,14 @@ thread_unblock (struct thread *t)
   t->status = THREAD_READY;
 
    //Getting the current thread
-   struct thread *current = thread_current();
-   if (intr_context()){
-      if(!list_empty(&ready_list)){
-         struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
-         if ((front->priority) > (current->priority)){
-            intr_yield_on_return();
-         }
+  if (intr_context()){
+    if(!list_empty(&ready_list)){
+      struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
+      if ((front->priority) > (thread_current()->priority)){
+        intr_yield_on_return();   //Must be this because interrupts are disabled so we have to wait
       }
+    }
+  }
   intr_set_level (old_level);
 }
 
@@ -388,8 +388,7 @@ thread_set_priority (int new_priority)
    //Updating the current priority with donations in mind
    update_priority(current);
    
-   /*Once we have set the new priority, we gotta check whether to yield to next process */   
-   struct thread *next_thread = next_thread_to_run();                                  //Get the current thread
+   /*Once we have set the new priority, we gotta check whether to yield to next process */  
    if (!list_empty(&ready_list)){
       struct thread *front = list_entry(list_front(&ready_list), struct thread, elem);
       if ((front->priority)>(current->priority)){
