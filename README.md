@@ -3,8 +3,6 @@ The Initial .bashrc file is for usage with Windows Docker instances outside the 
 
 Merges to main will require a build. Build failure will result in the inabilty to merge. 
 
-
-
 # Pintos
 Labs for undergraduate OS class (EC440) at Boston University. [Pintos](http://pintos-os.org) 
 is a teaching operating system for x86, challenging but not overwhelming, small

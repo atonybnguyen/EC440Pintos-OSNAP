@@ -59,6 +59,9 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
 
+/* The system load average. */
+fixed_t load_avg;
+
 static void kernel_thread (thread_func *, void *aux);
 
 static void idle (void *aux UNUSED);
@@ -72,6 +75,8 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
 void update_priority(struct thread *t);
+void thread_update_recent_cpu(struct thread *, void *);
+static void thread_update_priority_mlfqs(struct thread *);
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*
@@ -129,6 +134,8 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+
+  load_avg = FP_CONST (0);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -164,6 +171,11 @@ thread_tick (void)
 #endif
   else
     kernel_ticks++;
+
+  // Increment recent_cpu for the running thread (if MLFQS is enabled and it's not the idle thread)
+  if (thread_mlfqs && t != idle_thread) {
+    t->recent_cpu = FP_ADD_MIX(t->recent_cpu, 1); // Increment by 1
+  }
 
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
@@ -212,6 +224,8 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
+  t->nice = 0;                         /* Initial nice value. */
+  t->recent_cpu = FP_CONST(t->nice);          /* Initial recent_cpu value. */
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -409,32 +423,113 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  thread_current ()->nice = nice;
+  /* When the NICE is changed, the priority is possibly changed. */
+  thread_update_priority_mlfqs (thread_current ());
+  /* If there are threads with higher priority than the current thread, call
+     THREAD YIELD. */
+  try_thread_yield ();
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_ROUND (FP_MULT_MIX (load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_ROUND (FP_MULT_MIX (thread_current ()->recent_cpu, 100));
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/* MLFQS Helpers */
+
+/* Update the priority in the with mlfqs. */
+static void
+thread_update_priority_mlfqs(struct thread *t)
+{
+  int new_priority = (int) FP_ROUND (
+                           FP_SUB (FP_CONST ((PRI_MAX - ((t->nice) * 2))),
+						           FP_DIV_MIX (t->recent_cpu, 4)));
+  if (new_priority > PRI_MAX)
+    new_priority = PRI_MAX;
+  else if (new_priority < PRI_MIN)
+    new_priority = PRI_MIN;
+  t->priority = new_priority;
+}
+
+/* Per second with mlfqs. */
+void
+thread_tick_one_second (void)
+{
+  enum intr_level old_level = intr_disable ();
+  
+  /* Update system load average. */
+  int num_of_waiting_threads = (list_size (&ready_list)) +
+                               ((thread_current () != idle_thread) ? 1 : 0);
+  load_avg = FP_ADD (FP_DIV_MIX (FP_MULT_MIX (load_avg, 59), 60),
+                     FP_DIV_MIX (FP_CONST (num_of_waiting_threads), 60));
+
+  /* Update recent cpu of all threads. */
+  thread_foreach (thread_update_recent_cpu, NULL);
+
+  intr_set_level (old_level);
+}
+
+/* Used in THREAD FOREACH, to update RECENT CPU of all threads per second. */
+void
+thread_update_recent_cpu(struct thread *t, void *aux UNUSED)
+{ 
+  t->recent_cpu = FP_ADD_MIX (
+                  FP_DIV (FP_MULT (FP_MULT_MIX (load_avg, 2), t->recent_cpu),
+                          FP_ADD_MIX (FP_MULT_MIX (load_avg, 2), 1)), 
+				  t->nice);
+  thread_update_priority_mlfqs (t);
+}
+
+/* If the priority of a ready thread changes, this function should be called
+   to re-arrange the order of the READY LIST. */
+   void
+   thread_ready_rearrange (struct thread *t)
+   {
+     ASSERT (t->status == THREAD_READY);
+     
+     enum intr_level old_level = intr_disable ();
+     list_remove (&t->elem);
+     list_insert_ordered (&ready_list, &t->elem,
+                          thread_priority_comparison, NULL);
+     intr_set_level (old_level);
+   }
+
+
+   /* Add some preconditions for THREAD_YIELD. */
+void
+try_thread_yield (void)
+{
+  enum intr_level old_level = intr_disable ();
+  bool result = !list_empty (&ready_list) &&
+                list_entry (list_back (&ready_list), struct thread, elem)->priority >
+	            thread_get_priority ();
+  intr_set_level (old_level);
+  
+  if (result)
+	thread_yield (); 
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/**/
 
 /* Idle thread.  Executes when no other thread is ready to run.
 

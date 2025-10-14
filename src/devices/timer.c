@@ -171,7 +171,10 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  thread_tick ();
+
+  if (thread_mlfqs && ticks % TIMER_FREQ == 0)
+    thread_tick_one_second ();
+  thread_tick ();  
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
