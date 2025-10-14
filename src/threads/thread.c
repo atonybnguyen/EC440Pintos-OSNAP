@@ -66,6 +66,7 @@ static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
 
+
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -215,6 +216,38 @@ static void thread_mlfqs_tick(void) {
     int best = list_entry(list_front(&ready_list), struct thread, elem)->priority; // interrupts already off
     if (best > cur->priority) intr_yield_on_return();
   }
+}
+
+bool
+list_sleep_less_func (const struct list_elem *a,
+                      const struct list_elem *b,
+                      void *aux UNUSED)
+{
+    struct thread *thread_a = list_entry (a, struct thread, sleepelem);
+    struct thread *thread_b = list_entry (b, struct thread, sleepelem);
+
+    return thread_a->wakeup_tick < thread_b->wakeup_tick;
+}
+
+void
+thread_sleep (int64_t ticks){
+    struct thread *t = thread_current ();
+    enum intr_level old_level;
+    if (t == idle_thread){return;}
+
+    old_level = intr_disable ();
+    t->wakeup_tick = ticks;
+
+    list_insert_ordered(&sleeping_list, &t->sleepelem, (list_less_func *) list_sleep_less_func, NULL);
+
+    if (t->wakeup_tick < next_wakeup_tick){
+      next_wakeup_tick = t->wakeup_tick;
+    }
+
+    t->status = THREAD_BLOCKED;
+    schedule();
+
+    intr_set_level (old_level);
 }
 
 /* Prints thread statistics. */
@@ -834,7 +867,6 @@ allocate_tid (void)
 
   return tid;
 }
-
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);

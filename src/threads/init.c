@@ -199,6 +199,7 @@ pintos_init (void)
           }
     }
   }
+  shutdown_power_off ();
 }
 
 /* Clear the "BSS", a segment that should be initialized to

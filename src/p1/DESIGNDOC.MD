@@ -16,6 +16,8 @@ FirstName LastName <email@domain.example>
 
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
+ 
+
 
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
@@ -30,26 +32,59 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+In timer.c/h
+int64_t next_wakeup_tick (global) - this is the global time that is compared against each threads wakeup time
+struct list sleeping_list - where threads who are put to sleep go before being woken up for ready list
+int64_t wakeup_tick (local) - this acts as each thread's local time to tell itself to wakeup
+
+In thread.c/h
+int64_t wakeup_tick (local)
+struct list_elem sleepelem - this is an element in the sleep_list
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+When timer_sleep is called it detects non-negative time and initializes the time it takes to wake up in wakeup_tick
+It then calls thread_sleep (wakeup_tick) which is a helper function in thread.c
+thread_sleep gets the current thread and interrupt state and passes the wakeup_tick to the thread's local wakeup_tick var
+It adds the thread into the sleep queue ordered by wakeup time in descending order (list_sleep_less_func is the helper method)
+if the thread's wakeup tick is less than the next_wakeup_tick which is initially declared as the MAX the next_wakeup_tick is passed the thread's wakeup tick
+it then blocks the thread, calls the scheduler, and sets the interrupt state ON again.
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
+> 
+In the timer interrupt handler, it checks every tick if it's the next wake-up tick for the thread. If its false it does nothing and exits
+If it does detect that it is on a wakeup_tick it traverses the sleep_list to determine the next thread to wakeup, unblock, and remove from the sleep_list
+and add to the ready_list. 
+It then passes the wakeup_tick of the next thread to the global next_wakeup_tick, if the queue is empty it sets it to the maximum value so that any thread wakeup time is always less than the max
+In the best case its O(1) cause it checks if the tick is a wakeup tick. The average case is O(k) and worst case is O(n) if n means all threads wake on the same tick
+and k is a subset of n. 
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
 
+timer_sleep calls thread_sleep which disables interrupts before it makes any changes to the sleep_list. This way the current thread and only
+the current thread has access and can insert in the sleep_list. Afterward interrupts are re-enabled.
+
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+
+with the same solutions above, by disabling interrupts the inclusion of the thread in the sleep_list is contained in the critical section.
+So that means the timer interrupt cannot occur between the calculations and inclusion into the sleep_list
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+> 
+Another design I considered was utilizing a semaphore design for synchronization. I ultimately decided that disabling interrupts was a better solution
+Semaphoric design would require additional overhead for each call and an additional queue that wouldn't scale as well as a simpler more direct design
+like crudely disabling interrupts.
+
 
 			 PRIORITY SCHEDULING
 			 ===================

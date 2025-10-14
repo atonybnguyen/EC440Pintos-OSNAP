@@ -24,6 +24,8 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+int64_t next_wakeup_tick;
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -41,7 +43,11 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+  list_init (&sleeping_list);
+  next_wakeup_tick = INT64_MAX;
 }
+
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
 void
@@ -91,12 +97,12 @@ timer_elapsed (int64_t then)
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t ticks) {
-  if (ticks <= 0) return;
+timer_sleep (int64_t ticks) 
+{
+  if (ticks <= 0){return;}
   ASSERT(intr_get_level() == INTR_ON);
-  enum intr_level old = intr_disable();
-  thread_set_sleeping(ticks);
-  intr_set_level(old);
+  int64_t wakeup_tick = timer_ticks () + ticks;
+  thread_sleep (wakeup_tick);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -168,23 +174,39 @@ timer_print_stats (void)
 {
   printf ("Timer: %"PRId64" ticks\n", timer_ticks ());
 }
-
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  thread_tick ();
+  if (ticks >= next_wakeup_tick){
+    struct list_elem *e;
+    struct thread *t;
 
-  /* Wake any sleepers */
-  while (!list_empty(&sleeping_list)) {
-    struct thread *t = list_entry(list_front(&sleeping_list), struct thread, sleepelem);
-    if (t->wakeup_tick > ticks) break;
-    list_pop_front(&sleeping_list);
-    thread_unblock(t);
-    if (MLFQS_DEBUG) DBG_MLFQS("WAKE: %s at tick=%'"PRId64"\n", t->name, ticks);
+    while (!list_empty (&sleeping_list)){
+      e = list_begin (&sleeping_list);
+      t = list_entry (e, struct thread, sleepelem);
+
+      if (ticks >= t->wakeup_tick){
+        list_remove (e);
+        thread_unblock (t);
+        if (MLFQS_DEBUG) DBG_MLFQS("WAKE: %s at tick=%'"PRId64"\n", t->name, ticks);
+      }
+      else {break;}
+    }
+    
+    if (!list_empty (&sleeping_list)){
+      t = list_entry (list_begin (&sleeping_list), struct thread, sleepelem);
+      next_wakeup_tick = t->wakeup_tick;
+    }
+
+    else {
+      next_wakeup_tick = INT64_MAX; 
+    }
   }
 
-  if (thread_mlfqs && ticks % TIMER_FREQ == 0) {
+    if (thread_mlfqs && ticks % TIMER_FREQ == 0) {
     mlfqs_update_load_avg_and_recent_cpu_all();
     mlfqs_recompute_priority_all();
     if (MLFQS_DEBUG) {
@@ -193,8 +215,10 @@ timer_interrupt (struct intr_frame *args UNUSED)
                 (int)list_size(&ready_list) + (thread_current()!=idle_thread ? 1 : 0),
                 la100/100, la100%100, ticks);
     }
+    
   }
-  thread_tick ();  
+
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
