@@ -169,9 +169,14 @@ timer_print_stats (void)
 /* Timer interrupt handler. */
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
-{
+{ 
+
   ticks++;
   thread_tick ();
+
+  /* MLFQS bookkeeping lives in the thread subsystem. */
+  if (thread_mlfqs)
+    thread_mlfqs_tick();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

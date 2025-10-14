@@ -141,5 +141,6 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 struct thread *thread_get_highest_priority (void);
+void thread_mlfqs_tick (void);
 
 #endif /* threads/thread.h */

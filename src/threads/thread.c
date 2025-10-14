@@ -12,6 +12,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "threads/fixed.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -348,6 +349,90 @@ thread_get_priority (void)
 }
 
 
+static void mlfqs_update_load_avg_and_recent_cpu_all (void);
+static void mlfqs_recompute_priority_all (void);
+static int   highest_ready_priority_locked (void);
+
+
+void
+thread_mlfqs_tick (void)
+{
+  /* Called from interrupt context, interrupts are already off. */
+  struct thread *cur = thread_current ();
+
+  /* 1) Every tick: recent_cpu += 1 for the running, non-idle thread. */
+  if (cur != idle_thread)
+    cur->recent_cpu = FP_ADD_INT (cur->recent_cpu, 1);
+
+  /* 2) Once per second: update load_avg and recent_cpu for all threads. */
+  if (timer_ticks () % TIMER_FREQ == 0)
+    {
+      mlfqs_update_load_avg_and_recent_cpu_all ();
+      mlfqs_recompute_priority_all ();
+    }
+  /* 3) Every 4 ticks: recompute priorities for all threads. */
+  else if (timer_ticks () % 4 == 0)
+    {
+      mlfqs_recompute_priority_all ();
+    }
+
+  /* 4) Preempt if someone READY now has higher priority. */
+  if (!list_empty (&ready_list))
+    {
+      int best = highest_ready_priority_locked ();
+      if (best > cur->priority)
+        intr_yield_on_return (); /* safe in interrupt context */
+    }
+}
+
+/* Once/second updates: load_avg and recent_cpu for ALL non-idle threads. */
+static void
+mlfqs_update_load_avg_and_recent_cpu_all (void)
+{
+  /* ready_threads = #READY + (current != idle ? 1 : 0) */
+  int ready_threads = (int) list_size (&ready_list);
+  if (thread_current () != idle_thread)
+    ready_threads += 1;
+
+  /* load_avg = (59/60)*load_avg + (1/60)*ready_threads */
+  fixed_t term1 = FP_MUL (FP_DIV_INT (INT_TO_FP (59), 60), load_avg);
+  fixed_t term2 = FP_MUL_INT (FP_DIV_INT (INT_TO_FP (1), 60), ready_threads);
+  load_avg = FP_ADD (term1, term2);
+
+  /* recent_cpu = (2*load_avg)/(2*load_avg + 1) * recent_cpu + nice */
+  fixed_t coeff = FP_DIV (FP_MUL_INT (load_avg, 2),
+                          FP_ADD_INT (FP_MUL_INT (load_avg, 2), 1));
+
+  struct list_elem *e;
+  for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, allelem);
+      if (t == idle_thread) continue;
+
+      t->recent_cpu = FP_ADD_INT (FP_MUL (coeff, t->recent_cpu), t->nice);
+    }
+}
+
+/* Recompute priority for ALL non-idle threads: PRI_MAX - (recent_cpu/4) - 2*nice */
+static void
+mlfqs_recompute_priority_all (void)
+{
+  struct list_elem *e;
+  for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e))
+    {
+      struct thread *t = list_entry (e, struct thread, allelem);
+      if (t == idle_thread) continue;
+
+      int rc_div4_int = FP_TO_INT_ZERO (FP_DIV_INT (t->recent_cpu, 4));
+      int new_pri = PRI_MAX - rc_div4_int - 2 * t->nice;
+
+      if (new_pri > PRI_MAX) new_pri = PRI_MAX;
+      if (new_pri < PRI_MIN) new_pri = PRI_MIN;
+
+      t->priority = new_pri;
+    }
+}
+
 /* Return the highest priority among READY threads.
    Must be called with interrupts DISABLED. */
 static int
@@ -424,15 +509,20 @@ thread_get_nice (void)
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return 100*load_avg;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
+  
+  enum intr_level old = intr_disable ();
+
+  fixed_t rc = thread_current ()->recent_cpu;
+
+  intr_set_level(old);
+
   return 0;
 }
 
