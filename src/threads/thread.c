@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/fixed.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -71,7 +72,12 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
+static void thread_update_priority_mlfqs(struct thread *t);
 void update_priority(struct thread *t);
+void thread_update_recent_cpu(struct thread *, void *);
+
+/* System load average - fixed point number */
+static fixed_t load_avg;
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -120,6 +126,9 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
+
+  /* Initialize load_avg to 0 */
+  load_avg = 0;
 
   lock_init (&tid_lock);
   list_init (&ready_list);
@@ -170,7 +179,16 @@ thread_tick (void)
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
 
-  
+  /* If the multi-level feedback queue scheduler is used. */
+  if (thread_mlfqs)
+    {
+	  /* Add recent cpu of the current thread by 1. */
+      t->recent_cpu = FP_ADD_MIX (t->recent_cpu, 1);
+		
+	  /* Every four ticks, update the priority of the current thread. */
+	  if (thread_ticks % TIME_SLICE == 0)
+	    thread_update_priority_mlfqs (thread_current ());
+    }
 }
 
 /* Prints thread statistics. */
@@ -478,9 +496,10 @@ void
 thread_update_recent_cpu(struct thread *t, void *aux UNUSED)
 { 
   t->recent_cpu = FP_ADD_MIX (
-                  FP_DIV (FP_MULT (FP_MULT_MIX (load_avg, 2), t->recent_cpu),
-                          FP_ADD_MIX (FP_MULT_MIX (load_avg, 2), 1)), 
-				  t->nice);
+                  FP_MULT (FP_DIV (FP_MULT_MIX (load_avg, 2), 
+                                   FP_ADD_MIX (FP_MULT_MIX (load_avg, 2), 1)), 
+                           t->recent_cpu),
+                  t->nice);
   thread_update_priority_mlfqs (t);
 }
 
@@ -500,7 +519,7 @@ thread_update_priority_mlfqs(struct thread *t)
 
 /* This function is about what will happen per second with mlfqs. */
 void
-thread_tick_one_second_mflqs (void)
+thread_tick_one_second_mlfqs (void)
 {
   enum intr_level old_level = intr_disable ();
   
@@ -614,8 +633,6 @@ init_thread (struct thread *t, const char *name, int priority)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   t->nice = 0;
   t->recent_cpu = 0;
-
-  load_avg = 0;
    
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
