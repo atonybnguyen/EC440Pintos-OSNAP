@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -49,6 +50,7 @@ struct kernel_thread_frame
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
+
 
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
@@ -137,6 +139,38 @@ thread_tick (void)
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
+}
+
+bool
+list_sleep_less_func (const struct list_elem *a,
+                      const struct list_elem *b,
+                      void *aux UNUSED)
+{
+    struct thread *thread_a = list_entry (a, struct thread, sleepelem);
+    struct thread *thread_b = list_entry (b, struct thread, sleepelem);
+
+    return thread_a->wakeup_tick < thread_b->wakeup_tick;
+}
+
+void
+thread_sleep (int64_t ticks){
+    struct thread *t = thread_current ();
+    enum intr_level old_level;
+    if (t == idle_thread){return;}
+
+    old_level = intr_disable ();
+    t->wakeup_tick = ticks;
+
+    list_insert_ordered(&sleep_list, &t->sleepelem, (list_less_func *) list_sleep_less_func, NULL);
+
+    if (t->wakeup_tick < next_wakeup_tick){
+      next_wakeup_tick = t->wakeup_tick;
+    }
+
+    t->status = THREAD_BLOCKED;
+    schedule();
+
+    intr_set_level (old_level);
 }
 
 /* Prints thread statistics. */
