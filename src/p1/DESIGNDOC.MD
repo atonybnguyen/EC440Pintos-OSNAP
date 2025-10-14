@@ -95,6 +95,20 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+Changes in thread.h:
+sleepelem: list element for sleeping list.
+wakeup_tick: tick to wake sleeping thread.
+ready_list, sleeping_list: global ready/sleeping thread lists.
+idle_thread: pointer to idle thread.
+load_avg: system load average.
+thread_set_sleeping(): sleeps current thread for given ticks.
+mlfqs_update_load_avg_and_recent_cpu_all(): updates load_avg and recent_cpu.
+mlfqs_recompute_priority_all(): recomputes all thread priorities.
+
+Changes in thread.c:
+ready_list, sleeping_list, idle_thread, load_avg: global definitions.
+thread_mlfqs_tick(): handles per-tick MLFQS updates.
+
 ---- ALGORITHMS ----
 
 >> C2: Suppose threads A, B, and C have nice values 0, 1, and 2.  Each
@@ -102,26 +116,31 @@ FirstName LastName <email@domain.example>
 >> scheduling decision and the priority and recent_cpu values for each
 >> thread after each given number of timer ticks:
 
-timer  recent_cpu    priority   thread
-ticks   A   B   C   A   B   C   to run
------  --  --  --  --  --  --   ------
- 0
- 4
- 8
-12
-16
-20
-24
-28
-32
-36
+timer  recent_cpu        priority         thread
+ticks   A   B   C       A   B   C         to run
+-----  --  --  --      --  --  --         ------
+ 0      0   0   0       63  61  59         A
+ 4      4   0   0       62  61  59         A
+ 8      8   0   0       61  61  59         B
+12      8   4   0       61  60  59         A
+16     12   4   0       60  60  59         B
+20     12   8   0       60  59  59         A
+24     16   8   0       59  59  59         B
+28     16  12   0       59  58  59         C
+32     16  12   4       59  58  58         A
+36     20  12   4       58  58  58         B
+
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
+Yes, the main ambiguity was how to break ties when multiple ready threads share the highest priority. I resolved this by applying a first-come, first-served rule, where the thread that has been waiting longest among those with equal highest priority is chosen. 
+
 >> C4: How is the way you divided the cost of scheduling between code
->> inside and outside interrupt context likely to affect performance?
+>> nside and outside interrupt context likely to affect performance?
+
+By keeping scheduling decisions lightweight inside interrupt context (only marking a yield with intr_yield_on_return()) and performing full context switches outside, we minimize interrupt latency and improve overall responsiveness.
 
 ---- RATIONALE ----
 
@@ -130,12 +149,16 @@ ticks   A   B   C   A   B   C   to run
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 
+For MLFQS, our scheduler updates recent_cpu each tick, recomputes priorities every 4 ticks, and refreshes load_avg each second, then reorders the ready list—this keeps priorities responsive to CPU usage and nice values. The trade-off is overhead: recomputing priorities for all threads and reordering a single ready list is O(n) and correctness depends on reliably firing those periodic updates. With more time, we’d make MLFQS simpler and faster by using separate queues for each priority level and combining the priority calculation into one shared function.
+
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
 >> decide to implement it the way you did?  If you created an
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
+
+We implemented fixed-point math using simple macros in fixed.h to keep arithmetic fast and avoid floating-point operations in the kernel. This abstraction makes calculations like load average and recent CPU clear, consistent, and easy to maintain.
 
 			   SURVEY QUESTIONS
 			   ================
