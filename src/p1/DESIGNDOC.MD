@@ -34,7 +34,7 @@ FirstName LastName <email@domain.example>
 
 In timer.c/h
 int64_t next_wakeup_tick (global) - this is the global time that is compared against each threads wakeup time
-struct list sleep_list - where threads who are put to sleep go before being woken up for ready list
+struct list sleeping_list - where threads who are put to sleep go before being woken up for ready list
 int64_t wakeup_tick (local) - this acts as each thread's local time to tell itself to wakeup
 
 In thread.c/h

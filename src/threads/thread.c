@@ -238,7 +238,7 @@ thread_sleep (int64_t ticks){
     old_level = intr_disable ();
     t->wakeup_tick = ticks;
 
-    list_insert_ordered(&sleep_list, &t->sleepelem, (list_less_func *) list_sleep_less_func, NULL);
+    list_insert_ordered(&sleeping_list, &t->sleepelem, (list_less_func *) list_sleep_less_func, NULL);
 
     if (t->wakeup_tick < next_wakeup_tick){
       next_wakeup_tick = t->wakeup_tick;

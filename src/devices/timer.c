@@ -25,7 +25,6 @@
 static int64_t ticks;
 
 int64_t next_wakeup_tick;
-struct list sleep_list;
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -45,7 +44,7 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 
-  list_init (&sleep_list);
+  list_init (&sleeping_list);
   next_wakeup_tick = INT64_MAX;
 }
 
@@ -180,22 +179,33 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  thread_tick ();
   if (ticks >= next_wakeup_tick){
     struct list_elem *e;
     struct thread *t;
 
-    while (!list_empty (&sleep_list)){
-      e = list_begin (&sleep_list);
+    while (!list_empty (&sleeping_list)){
+      e = list_begin (&sleeping_list);
       t = list_entry (e, struct thread, sleepelem);
 
       if (ticks >= t->wakeup_tick){
         list_remove (e);
         thread_unblock (t);
+        if (MLFQS_DEBUG) DBG_MLFQS("WAKE: %s at tick=%'"PRId64"\n", t->name, ticks);
       }
-      if (MLFQS_DEBUG) DBG_MLFQS("WAKE: %s at tick=%'"PRId64"\n", t->name, ticks);
       else {break;}
     }
     
+    if (!list_empty (&sleeping_list)){
+      t = list_entry (list_begin (&sleeping_list), struct thread, sleepelem);
+      next_wakeup_tick = t->wakeup_tick;
+    }
+
+    else {
+      next_wakeup_tick = INT64_MAX; 
+    }
+  }
+
     if (thread_mlfqs && ticks % TIMER_FREQ == 0) {
     mlfqs_update_load_avg_and_recent_cpu_all();
     mlfqs_recompute_priority_all();
@@ -204,20 +214,11 @@ timer_interrupt (struct intr_frame *args UNUSED)
       DBG_MLFQS("[1s] ready=%d load_avg=%d.%02d @ tick=%'"PRId64"\n",
                 (int)list_size(&ready_list) + (thread_current()!=idle_thread ? 1 : 0),
                 la100/100, la100%100, ticks);
-      }
     }
     
-    if (!list_empty (&sleep_list)){
-      t = list_entry (list_begin (&sleep_list), struct thread, sleepelem);
-      next_wakeup_tick = t->wakeup_tick;
-    }
-    
-    else {
-      next_wakeup_tick = INT64_MAX; 
-    }
-    
-    thread_tick ();
   }
+
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
