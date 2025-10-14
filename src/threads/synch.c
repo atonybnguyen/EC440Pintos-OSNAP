@@ -32,20 +32,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-void update_priority(struct thread *t){
-//Saving the actual priority for use later
-   t->priority = t->base_priority;
 
-//If the thread is already inheriting from another, organize the list of donor so that the highest would be first
-   if (!list_empty(&t->donors)){
-      list_sort(&t->donors, thread_priority_comparison,NULL);            //Sort so that highest prio thread is first
-      struct thread *highest_prio = list_entry(list_front(&t->donors), struct thread, donor_elem);   //Get the first thread
-      if ((highest_prio->priority) > (t->priority)){               // Compare thread with the donor and if the donor is higher, then inherit prio
-         t->priority = highest_prio->priority;
-      }
-   }
-}
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Have to move this here to use it for the semaphore comparison
 /* One semaphore in a list. */
@@ -86,27 +73,29 @@ static bool thread_semaphore_comparison(const struct list_elem *a, const struct 
 
 
 static void donate_priority(struct lock *lock){
-
    //Setting up variables we will need
    struct thread *current = thread_current();
-   struct thread *holder = lock->holder;
+   struct lock *cur_lock = lock;      //will be useful in the case that a thread holds multiple threads
    int depth = 0;
-   const int limit = 8;
+   const int limit = 20;
 
    //Identifying the lock we are waiting on
    current->waiting_on = lock;
 
    //NESTED DONATING
-   //While the lock is being held and we are still within the limit for depth
-   while (holder != NULL && (depth < limit)){
-      //If current thread has a higher priority, then donate it to the holder of the lock
+
+   while (cur_lock != NULL && (depth < limit)){
+      struct thread *holder = cur_lock->holder;
+      if (holder == NULL){
+         break;
+      }
+
       if (current->priority > holder->priority){
          holder->priority = current->priority;
 
          //If the holder is waiting for a lock, then we chain them
          if (holder->waiting_on != NULL){
-            lock = holder->waiting_on;
-            holder = lock->holder;
+            cur_lock = holder->waiting_on;
          }else{
             break;
          }
@@ -128,8 +117,11 @@ static void donate_priority(struct lock *lock){
 
 
 static void remove_priority(struct lock *lock){
+   if (thread_mlfqs){         //mlfqs dont use this
+      return;
+   }
    struct thread *current = thread_current();
-   struct list_elem *donators;
+   struct list_elem *donators = list_begin(&current->donors);
    
    while (donators != list_end(&current->donors)){
       struct thread *donor = list_entry(donators, struct thread, donor_elem);
@@ -140,6 +132,8 @@ static void remove_priority(struct lock *lock){
          donators = list_next(donators);
       }
    }
+
+   //Get the new priority because now the inheritor doesn't have this priority anymore
    update_priority(current);
 }
 
@@ -222,30 +216,29 @@ void
 sema_up (struct semaphore *sema) 
 {
   enum intr_level old_level;
-   bool yield = false;
+  bool yield = false;
+
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)){
      list_sort(&sema->waiters, thread_priority_comparison, NULL);      //Sorting waiters based on their priority
-     thread_unblock (list_entry (list_pop_front (&sema->waiters), struct thread, elem));
+     struct thread *thread = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
+     thread_unblock (thread);
 
-      if (!intr_context() && !list_empty(&ready_list)){
-      struct thread *current = thread_current();
-      struct thread *top = list_entry(list_front(&ready_list), struct thread, elem);
-      if ((top->priority) > (current->priority)){
-         yield = true;
-      }
-   }
-     
+     //CHeck if the unblocked thread has a higher priority than the current one to yield
+     if (!intr_context() && thread->priority > thread_current()->priority){
+      yield = true;
+     }
   }
    
   sema->value++;
   intr_set_level (old_level);
 
+  //Have to yield while outside of interrupt
    if (yield){
       thread_yield();
-   )
+   }
 }
 
 static void sema_test_helper (void *sema_);
