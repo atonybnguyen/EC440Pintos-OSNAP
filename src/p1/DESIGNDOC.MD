@@ -16,6 +16,8 @@ FirstName LastName <email@domain.example>
 
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
+ 
+Anthony - 
 
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
@@ -30,10 +32,24 @@ FirstName LastName <email@domain.example>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+In timer.c/h
+int64_t next_wakeup_tick (global) - this is the global time that is compared against each threads wakeup time
+struct list sleep_list - where threads who are put to sleep go before being woken up for ready list
+int64_t wakeup_tick (local) - this acts as each thread's local time to tell itself to wakeup
+
+In thread.c/h
+int64_t wakeup_tick (local)
+struct list_elem sleepelem - this is an element in the sleep_list
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
+
+When timer_sleep is called it detects non-negative time and initializes the time it takes to wake up in wakeup_tick
+It then calls thread_sleep (wakeup_tick) which is a helper function in thread.c
+thread_sleep gets the current thread and interrupt state and passes the wakeup_tick to the thread's local wakeup_tick var
+It adds the thread into the sleep queue ordered by wakeup time in descending order (list_sleep_less_func is the helper method)
+if the 
 
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
