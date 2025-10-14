@@ -59,6 +59,26 @@ FirstName LastName <email@domain.example>
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+/////Inside of thread.c//////
+****NEW FUNCTIONS****
+static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
+	This function is used to compare the priority between two different threads
+
+void update_priority(struct thread *t)
+	This function is used to update the priority of a thread after inheriting from another thread that needs the lock
+
+****MODIFIED****
+thread_unblock (struct thread *t) 
+	Changed to sort the new unblocked thread, and check whether to yield if it's priority is higher
+
+thread_yield (void) 
+	Changed so that instead of adding push_back, we are now sorting it as we add it in
+
+
+
+
+
+
 
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
