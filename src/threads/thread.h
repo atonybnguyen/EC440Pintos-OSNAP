@@ -101,6 +101,11 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    /* Owned by thread.c and synch.c. */
+	int nice;                           /* Determines how nice a thread should
+   be to other threads. */
+fixed_t recent_cpu;                 /* The recent cpu. */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
