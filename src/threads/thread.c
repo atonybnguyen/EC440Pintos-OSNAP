@@ -73,6 +73,7 @@ static tid_t allocate_tid (void);
 static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
 void update_priority(struct thread *t);
 
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*
 Implementing Priority Scheduling below
@@ -168,6 +169,8 @@ thread_tick (void)
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
+
+  
 }
 
 /* Prints thread statistics. */
@@ -409,32 +412,112 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  thread_current ()->nice = nice;
+  /* When the NICE is changed, the priority is possibly changed. */
+  thread_update_priority_mlfqs (thread_current ());
+  /* If there are threads with higher priority than the current thread, call
+     THREAD YIELD. */
+  try_thread_yield ();
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_ROUND (FP_MULT_MIX (load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return FP_ROUND (FP_MULT_MIX (thread_current ()->recent_cpu, 100));
 }
+
+//////////////////////////////////////////////////////////////////
+/*Helpers for MLFQS*/
+
+/* Add some preconditions for THRAED_YIELD. */
+
+void
+try_thread_yield (void)
+{
+  enum intr_level old_level = intr_disable ();
+  bool need_yield = !list_empty (&ready_list) &&
+                list_entry (list_back (&ready_list), struct thread, elem)->priority >
+	            thread_get_priority ();
+  intr_set_level (old_level);
+  
+  if (need_yield)
+	thread_yield (); 
+}
+
+/* If the priority of a ready thread changes, this function should be called
+   to re-arrange the order of the READY LIST. */
+void
+thread_ready_rearrange (struct thread *t)
+{
+  ASSERT (t->status == THREAD_READY);
+  
+  enum intr_level old_level = intr_disable ();
+  list_remove (&t->elem);
+  list_insert_ordered (&ready_list, &t->elem,
+                       thread_priority_comparison, NULL);
+  intr_set_level (old_level);
+}
+
+/* Used in THREAD FOREACH, to update RECENT CPU of all threads per second. */
+void
+thread_update_recent_cpu(struct thread *t, void *aux UNUSED)
+{ 
+  t->recent_cpu = FP_ADD_MIX (
+                  FP_DIV (FP_MULT (FP_MULT_MIX (load_avg, 2), t->recent_cpu),
+                          FP_ADD_MIX (FP_MULT_MIX (load_avg, 2), 1)), 
+				  t->nice);
+  thread_update_priority_mlfqs (t);
+}
+
+/* Update the priority in the mlfqs way. */
+static void
+thread_update_priority_mlfqs(struct thread *t)
+{
+  int new_priority = (int) FP_ROUND (
+                           FP_SUB (FP_CONST ((PRI_MAX - ((t->nice) * 2))),
+						           FP_DIV_MIX (t->recent_cpu, 4)));
+  if (new_priority > PRI_MAX)
+    new_priority = PRI_MAX;
+  else if (new_priority < PRI_MIN)
+    new_priority = PRI_MIN;
+  t->priority = new_priority;
+}
+
+/* This function is about what will happen per second with mlfqs. */
+void
+thread_tick_one_second_mflqs (void)
+{
+  enum intr_level old_level = intr_disable ();
+  
+  /* Update system load average. */
+  int num_of_waiting_threads = (list_size (&ready_list)) +
+                               ((thread_current () != idle_thread) ? 1 : 0);
+  load_avg = FP_ADD (FP_DIV_MIX (FP_MULT_MIX (load_avg, 59), 60),
+                     FP_DIV_MIX (FP_CONST (num_of_waiting_threads), 60));
+
+  /* Update recent cpu of all threads. */
+  thread_foreach (thread_update_recent_cpu, NULL);
+
+  intr_set_level (old_level);
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -529,8 +612,10 @@ init_thread (struct thread *t, const char *name, int priority)
    list_init(&t->donors);             //Initializing list for donors
    t->waiting_on = NULL;              //Just created so no lock to be waiting on
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  t->nice = 0;
+  t->recent_cpu = 0;
 
-
+  load_avg = 0;
    
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
