@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -101,14 +102,28 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    /* Owned by thread.c and synch.c. */
+	int nice;                           /* Determines how nice a thread should
+   be to other threads. */
+   fixed_t recent_cpu;                 /* The recent cpu. */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
 #endif
 
+    /* Sleeping support */
+    struct list_elem sleepelem;          /* in sleeping_list */
+    int64_t wakeup_tick;                  /* absolute tick to wake */
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
+
+extern struct list ready_list;
+extern struct list sleeping_list;
+extern struct thread *idle_thread;
+extern fixed_t load_avg;
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -145,5 +160,18 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void mlfqs_update_load_avg_and_recent_cpu_all(void);
+void mlfqs_recompute_priority_all(void);
+
+void try_thread_yield (void);
+
+void thread_update_priority (struct thread *);
+
+void thread_ready_rearrange (struct thread *);
+
+void thread_tick_one_second_mlfqs (void);
+
+void thread_set_sleeping(int64_t ticks);
 
 #endif /* threads/thread.h */

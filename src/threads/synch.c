@@ -73,6 +73,9 @@ static bool thread_semaphore_comparison(const struct list_elem *a, const struct 
 
 
 static void donate_priority(struct lock *lock){
+   if (thread_mlfqs) {
+      return;
+   }
    //Setting up variables we will need
    struct thread *current = thread_current();
    struct lock *cur_lock = lock;      //will be useful in the case that a thread holds multiple threads
@@ -317,9 +320,12 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-   //Donate priority
-   if (lock->holder != NULL){
-      donate_priority(lock);
+   if (thread_mlfqs) {
+   } else {
+      //Donate priority
+      if (lock->holder != NULL){
+         donate_priority(lock);
+      }
    }
 
    //acquire lock

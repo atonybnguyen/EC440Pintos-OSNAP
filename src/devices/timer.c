@@ -1,4 +1,8 @@
 #include "devices/timer.h"
+#ifndef MLFQS_DEBUG
+#define MLFQS_DEBUG 0
+#endif
+#define DBG_MLFQS(...) do { if (MLFQS_DEBUG) printf(__VA_ARGS__); } while (0)
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
@@ -87,13 +91,12 @@ timer_elapsed (int64_t then)
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
-timer_sleep (int64_t ticks) 
-{
-  int64_t start = timer_ticks ();
-
-  ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+timer_sleep (int64_t ticks) {
+  if (ticks <= 0) return;
+  ASSERT(intr_get_level() == INTR_ON);
+  enum intr_level old = intr_disable();
+  thread_set_sleeping(ticks);
+  intr_set_level(old);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -171,7 +174,27 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  thread_tick ();
+
+  /* Wake any sleepers */
+  while (!list_empty(&sleeping_list)) {
+    struct thread *t = list_entry(list_front(&sleeping_list), struct thread, sleepelem);
+    if (t->wakeup_tick > ticks) break;
+    list_pop_front(&sleeping_list);
+    thread_unblock(t);
+    if (MLFQS_DEBUG) DBG_MLFQS("WAKE: %s at tick=%'"PRId64"\n", t->name, ticks);
+  }
+
+  if (thread_mlfqs && ticks % TIMER_FREQ == 0) {
+    mlfqs_update_load_avg_and_recent_cpu_all();
+    mlfqs_recompute_priority_all();
+    if (MLFQS_DEBUG) {
+      int la100 = FP_ROUND(FP_MULT_MIX(load_avg, 100));
+      DBG_MLFQS("[1s] ready=%d load_avg=%d.%02d @ tick=%'"PRId64"\n",
+                (int)list_size(&ready_list) + (thread_current()!=idle_thread ? 1 : 0),
+                la100/100, la100%100, ticks);
+    }
+  }
+  thread_tick ();  
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
