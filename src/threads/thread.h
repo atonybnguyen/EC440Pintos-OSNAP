@@ -4,7 +4,6 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include "fixed.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -102,11 +101,6 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-   /* Owned by thread.c and synch.c. */
-	int nice;                           /* Determines how nice a thread should
-	                                       be to other threads. */
-	fixed_t recent_cpu;                 /* The recent cpu. */                                          
-
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -120,7 +114,6 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-extern fixed_t load_avg;
 
 void thread_init (void);
 void thread_start (void);
@@ -152,12 +145,5 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
-
-int thread_get_recent_cpu (void);
-int thread_get_load_avg (void);
-void thread_ready_rearrange (struct thread *);
-void thread_tick_one_second (void);
-
-void try_thread_yield (void);
 
 #endif /* threads/thread.h */
