@@ -132,6 +132,7 @@ pintos_init (void)
   if (*argv != NULL) {
     /* Run actions specified on kernel command line. */
     run_actions (argv);
+    shutdown_power_off();
   } else {
     // TODO: no command line passed to kernel. Run interactively 
     
@@ -199,7 +200,6 @@ pintos_init (void)
           }
     }
   }
-  shutdown_power_off ();
 }
 
 /* Clear the "BSS", a segment that should be initialized to
