@@ -44,6 +44,7 @@ jobs:
             /bin/bash -c " \
               export PATH=\$PATH:/home/BUOS/pintos/src/utils && \
               cd /home/BUOS/pintos/src/threads && \
+              export BXSHARE=/home/BUOS/toolchain/x86_64/share/bochs && \
               make clean && \
               echo '### DEBUG: Listing BIOS directory ###' && ls -l $BXSHARE &&\
               find / -type f -name 'BIOS-bochs*' 2>/dev/null &&\
