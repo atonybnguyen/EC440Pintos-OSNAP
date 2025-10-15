@@ -48,30 +48,6 @@ jobs:
               source setup.sh && \
               cd src/threads && \
               make clean && \
-              make check &> test_results.txt\
-            "
-        continue-on-error: true
-        
-      - name: Post Test Results as a PR Comment
-        uses: actions/github-script@v7
-        # Only run this step for pull requests
-        if: github.event_name == 'pull_request'
-        with:
-          script: |
-            const fs = require('fs');
-            // Read the content of the captured output file
-            const output = fs.readFileSync('pintos/src/threads/test_results.txt', 'utf8');
+              make check\
             
-            // Determine the status icon based on the test step's outcome
-            const status = '${{ steps.pintos_test.outcome }}' === 'success' ? '✅ Tests Passed' : '❌ Tests Failed';
-
-            // Format a nice-looking comment with a collapsible section for the logs
-            const body = `## Pintos Test Results: ${status}\n\n<details><summary>Click to view test output</summary>\n\n\`\`\`\n${output}\n\`\`\`\n\n</details>`;
-
-            // Post the comment to the pull request
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: body
-            });
+      
