@@ -44,9 +44,9 @@ jobs:
             --mount type=bind,source="$(pwd)/pintos",target=/home/BUOS/pintos \
             ghcr.io/atonybnguyen/pintos:latest \
             /bin/bash -c " \
-              cd /home/BUOS/pintos && \
-              source setup.sh && \
-              cd src/threads && \
+              export PATH=$PATH:/home/BUOS/pintos/src/utils && \
+              cd /home/BUOS/pintos/src/threads && \
               make clean && \
               make check\
             "
+
