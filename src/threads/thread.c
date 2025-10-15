@@ -93,6 +93,7 @@ static void thread_mlfqs_tick(void);
 void update_priority(struct thread *t);
 void mlfqs_update_load_avg_and_recent_cpu_all(void);
 void mlfqs_recompute_priority_all(void);
+static inline int mlfqs_priority_of(const struct thread *t);
 
 void mlfqs_dbg_dump(void);
 
@@ -208,15 +209,24 @@ thread_tick (void)
 
 static void thread_mlfqs_tick(void) {
   struct thread *cur = thread_current();
-  if (cur != idle_thread) cur->recent_cpu = FP_ADD_MIX(cur->recent_cpu, 1);
 
-  if (timer_ticks() % 4 == 0) mlfqs_recompute_priority_all();
+  /* 1) Per-tick: running thread's recent_cpu++ */
+  if (cur != idle_thread)
+    cur->recent_cpu = FP_ADD_MIX(cur->recent_cpu, 1);
 
+  /* 2) Every 4 ticks: ONLY the running thread's priority can change */
+  if (timer_ticks() % 4 == 0) {
+    thread_update_priority_mlfqs(cur);  // uses mlfqs_priority_of()
+  }
+
+  /* 3) If a higher-priority ready thread exists, preempt on return */
   if (!list_empty(&ready_list)) {
-    int best = list_entry(list_front(&ready_list), struct thread, elem)->priority; // interrupts already off
-    if (best > cur->priority) intr_yield_on_return();
+    int best = list_entry(list_front(&ready_list), struct thread, elem)->priority;
+    if (best > cur->priority)
+      intr_yield_on_return();
   }
 }
+
 
 bool
 list_sleep_less_func (const struct list_elem *a,
@@ -556,26 +566,31 @@ thread_ready_rearrange (struct thread *t)
   intr_set_level (old_level);
 }
 
-/* Update the priority in the mlfqs way. */
+/* Update the priority in the MLFQS way (uses truncation via helper). */
 static void
 thread_update_priority_mlfqs(struct thread *t)
 {
-  int new_priority = (int) FP_ROUND (
-                           FP_SUB (FP_CONST ((PRI_MAX - ((t->nice) * 2))),
-						           FP_DIV_MIX (t->recent_cpu, 4)));
-  // int old_priority = t->priority; /* This was removed previously */
-  if (new_priority > PRI_MAX)
-    new_priority = PRI_MAX;
-  else if (new_priority < PRI_MIN)
-    new_priority = PRI_MIN;
-  
-  if (t->priority != new_priority) {
+  int old_priority = t->priority;
+  int new_priority = mlfqs_priority_of(t);   // uses FP_INT_PART(recent_cpu/4)
+
+  if (new_priority != old_priority) {
     t->priority = new_priority;
-    if (t->status == THREAD_READY) {
-      list_remove(&t->elem);
-      list_insert_ordered(&ready_list, &t->elem, thread_priority_comparison, NULL);
-    }
+    if (t->status == THREAD_READY)
+      thread_ready_rearrange(t);
   }
+}
+
+
+// MLFQS Priority helper 
+static inline int mlfqs_priority_of(const struct thread *t) {
+  if (t == idle_thread) return PRI_MIN;
+
+  int pr = PRI_MAX
+           - FP_INT_PART(FP_DIV_MIX(t->recent_cpu, 4))   // truncate, not round
+           - (t->nice * 2);
+  if (pr > PRI_MAX) pr = PRI_MAX;
+  if (pr < PRI_MIN) pr = PRI_MIN;
+  return pr;
 }
 
 /* This function is about what will happen per second with mlfqs. */
@@ -608,32 +623,24 @@ void mlfqs_update_load_avg_and_recent_cpu_all(void) {
   intr_set_level (old_level);
 }
 
-// New function for recomputing priorities of all threads
+// Recompute priorities of all threads
 void mlfqs_recompute_priority_all(void) {
-  if (MLFQS_DEBUG && (timer_ticks() % 4 == 0)) {
+  if (MLFQS_DEBUG && (timer_ticks() % 4 == 0))
     DBG_MLFQS(MLFQS_REPRIO_FMT, (long long) timer_ticks());
-  }
+
+  // Recompute priorities
   struct list_elem *e;
   for (e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e)) {
     struct thread *t = list_entry(e, struct thread, allelem);
     if (t == idle_thread) continue;
-
-    int pr = PRI_MAX
-             - FP_ROUND(FP_DIV_MIX(t->recent_cpu, 4))
-             - (t->nice * 2);
-    if (pr > PRI_MAX) pr = PRI_MAX;
-    if (pr < PRI_MIN) pr = PRI_MIN;
-
-    int old = t->priority;
-    t->priority = pr;
-
-    if (t->status == THREAD_READY) thread_ready_rearrange(t);
-
-    if (MLFQS_DEBUG && pr != old) {
-      DBG_MLFQS("MLFQS:prio %s %d->%d rc=%d nice=%d\n",
-                t->name, old, pr, FP_ROUND(FP_MULT_MIX(t->recent_cpu,100)), t->nice);
-    }
+    t->priority = mlfqs_priority_of(t);
   }
+
+  // Reorder ready list ONCE
+  enum intr_level old = intr_disable();
+  if (!list_empty(&ready_list))
+    list_sort(&ready_list, thread_priority_comparison, NULL);
+  intr_set_level(old);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -653,6 +660,12 @@ idle (void *idle_started_ UNUSED)
 {
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
+
+  idle_thread->nice = 0;                  
+  idle_thread->recent_cpu = 0;            
+  idle_thread->priority = PRI_MIN;
+
+
   sema_up (idle_started);
 
   for (;;) 
@@ -724,38 +737,48 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
   t->magic = THREAD_MAGIC;
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-   /* updating thread initializing for additional data to support priority donations */
-   t-> base_priority = priority;      //On initializing, set base priority to priority
-   list_init(&t->donors);             //Initializing list for donors
-   t->waiting_on = NULL;              //Just created so no lock to be waiting on
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  /* Priority donation bookkeeping */
+  t->base_priority = priority;
+  list_init(&t->donors);
+  t->waiting_on = NULL;
+
+  /* MLFQS fields */
+  t->nice = 0;
   t->recent_cpu = 0;
 
   if (thread_mlfqs) {
-    if (t != initial_thread && t != idle_thread) { // Explicitly check for idle_thread
+    if (t == idle_thread) {
+      /* Idle thread: fixed lowest priority. */
+      t->priority = PRI_MIN;
+      DBG_MLFQS("MLFQS:init_thread idle: %s nice=%d rc=0 pr=%d\n",
+                t->name, t->nice, t->priority);
+    } else if (t == initial_thread) {
+      /* First (main) thread: start from zeros, compute via helper. */
+      t->priority = mlfqs_priority_of(t);
+      DBG_MLFQS("MLFQS:init_thread initial: %s nice=%d rc=0 pr=%d\n",
+                t->name, t->nice, t->priority);
+    } else {
+      /* New thread inherits nice/recent_cpu from current, then compute. */
       struct thread *cur = running_thread(); /* safe here */
       t->nice = cur->nice;
       t->recent_cpu = cur->recent_cpu;
-      DBG_MLFQS("MLFQS:init_thread inherit: %s gets nice=%d rc=%d\n",
-                t->name, t->nice, FP_ROUND (FP_MULT_MIX (t->recent_cpu, 100)));
-    } else {
-      DBG_MLFQS("MLFQS:init_thread initial/idle: %s nice=0 rc=0\n", t->name);
+      t->priority = mlfqs_priority_of(t);
+      DBG_MLFQS("MLFQS:init_thread inherit: %s nice=%d rc=%d pr=%d\n",
+                t->name, t->nice,
+                FP_ROUND(FP_MULT_MIX(t->recent_cpu, 100)), t->priority);
     }
-    // Immediately compute t->priority using the MLFQS formula
-    int pr = PRI_MAX - FP_ROUND(FP_DIV_MIX(t->recent_cpu, 4)) - (t->nice * 2);
-    if (pr > PRI_MAX) pr = PRI_MAX;
-    if (pr < PRI_MIN) pr = PRI_MIN;
-    t->priority = pr;
+  } else {
+    /* Non-MLFQS: use caller-provided priority. */
+    t->priority = priority;
   }
-   
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
 }
+
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
    returns a pointer to the frame's base. */
