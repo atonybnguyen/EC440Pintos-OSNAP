@@ -207,8 +207,9 @@ timer_interrupt (struct intr_frame *args UNUSED)
   }
 
     if (thread_mlfqs && ticks % TIMER_FREQ == 0) {
-    mlfqs_update_load_avg_and_recent_cpu_all();
-    mlfqs_recompute_priority_all();
+        mlfqs_update_load_avg_and_recent_cpu_all();  // updates all threads' recent_cpu, load_avg
+        mlfqs_recompute_priority_all();              // recompute priorities for ALL threads (O(n))
+
     if (MLFQS_DEBUG) {
       int la100 = FP_ROUND(FP_MULT_MIX(load_avg, 100));
       DBG_MLFQS("[1s] ready=%d load_avg=%d.%02d @ tick=%'"PRId64"\n",
