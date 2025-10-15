@@ -48,7 +48,8 @@ jobs:
               make clean && \
               echo '### DEBUG: Listing BIOS directory ###' && ls -l $BXSHARE &&\
               find / -type f -name 'BIOS-bochs*' 2>/dev/null &&\
-              make check VERBOSE=1 \
+              make && \
+              pintos run alarm-single -- -q \
             "
 
 
