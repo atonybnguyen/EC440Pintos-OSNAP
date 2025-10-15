@@ -45,6 +45,7 @@ jobs:
               export PATH=\$PATH:/home/BUOS/pintos/src/utils && \
               cd /home/BUOS/pintos/src/threads && \
               make clean && \
+              echo '### DEBUG: Listing BIOS directory ###' && ls -l $BXSHARE\
               make check VERBOSE=1 \
             "
 
