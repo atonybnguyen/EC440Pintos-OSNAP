@@ -46,6 +46,7 @@ jobs:
               cd /home/BUOS/pintos/src/threads && \
               make clean && \
               echo '### DEBUG: Listing BIOS directory ###' && ls -l $BXSHARE &&\
+              find / -type f -name 'BIOS-bochs*' 2>/dev/null &&\
               make check VERBOSE=1 \
             "
 
