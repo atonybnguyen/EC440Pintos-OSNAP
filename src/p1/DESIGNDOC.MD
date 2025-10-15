@@ -8,9 +8,9 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Hieu Nguyen <hnguyen0@bu.edu>
+Anthony Nguyen <thonyngu@bu.edu>
+Jeehan Zaman <jeehanz@bu.edu>
 
 ---- PRELIMINARIES ----
 
@@ -94,32 +94,172 @@ like crudely disabling interrupts.
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+***Inside of thread.h***
+struct list donors
+Used to hold a list of donors from one thread to another
+
+struct list_elem donor_elem
+Used to hold the elements of each donor in the list
+
+struct waiting_on
+In the case that the thread needs a lock that is currently held, it would save that lock
+
+***Inside of thread.c***
+static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux);
+Used to compare different threads to check which one have a higher priority
+
+
+void update_priority(struct thread *t)
+After modification is made to a thread's priority, donation or lock, then we update the priority
+
+tid_t thread_create (const char *name, int priority, thread_func *function, void *aux)
+If the newly created thread has a higher priority than the current one, yield
+
+void thread_unblock (struct thread *t) 
+Made it so that in the case the unblocked thread has a higher priority, we would yield
+
+void thread_yield(void)
+Update it so that when yielding, the thread would be added back into the ready_list in an organized manner using the comparison function
+
+void thread_set_priority (int new_priority) 
+Added for the check to see if the newly set priority is higher then the current one to yield
+
+static void init_thread (struct thread *t, const char *name, int priority)
+Added the initialization of hte new variables added to the structure of threads
+
+***Inside of synch.c***
+struct semaphore_elem(struct list_elem elem; struct semaphore semaphore;);
+Moved it to the start of the code cause I use it right after
+
+static bool thread_priority_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+Copied over from thread.c but used to compare thread priority
+
+static bool thread_semaphore_comparison(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+Used to compare the priority of two different semaphore
+
+static void donate_priority(struct lock *lock)
+In the case that the current thread that is holding a lock is of a lower priority, then donate and add itself to donor list
+
+static void remove_priority(struct lock *lock)
+Removing priority after change in the donor, then updating the priority since it no longer holds that value
+
+void
+sema_down (struct semaphore *sema) 
+Updating it so that items are added in an ordered way
+
+void sema_up(struct semaphore *sema)
+Change value of sema, and then sort the waiters based on priority. If higher, then yield
+
+lock_acquire()
+Acquire the lock and set the current thread running as the holder
+
+lock_release()
+Releasing the lock, setting the holder of it to NULL
+
+cond_signal()
+Modified so that the highest priority waiter would wake up first
+
+
+
 
 >> B2: Explain the data structure used to track priority donation.
+Inside the structure of thread, there are a few additional information that was added
+base_priority is the actual priority of the thread
+priority is the priority that gets modified from donations
+donor is a list of threads that are donating to it
+waiting_on is the lock which the thread is waiting on
+
+If there is a thread that needs a lock, it would set waiting_on as that lock and it would join the list of donor for that certain thread. In the case that there are many, the list is sorted with the highest priority being first to make sure that it is getting the correct priority value
+
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
 
+Initial State:
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│  Thread L   │         │  Thread M   │         │  Thread H   │
+│ priority=10 │ holds   │ priority=20 │ holds   │ priority=30 │
+│ base_pr=10  │ Lock A  │ base_pr=20  │ Lock B  │ base_pr=30  │
+│ donors={}   │◄────────│ waiting_on=A│◄────────│ waiting_on=B│
+└─────────────┘         │ donors={}   │         │ donors={}   │
+                        └─────────────┘         └─────────────┘
+
+Step 1: Thread M wants Lock A (held by L)
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│  Thread L   │         │  Thread M   │         │  Thread H   │
+│ priority=20 │◄───┐    │ priority=20 │ holds   │ priority=30 │
+│ base_pr=10  │    │    │ base_pr=20  │ Lock B  │ base_pr=30  │
+│ donors={M}  │    └────│ waiting_on=A│◄────────│ waiting_on=B│
+└─────────────┘         │ donors={}   │         │ donors={}   │
+                        └─────────────┘         └─────────────┘
+         Donation: M donates 20 to L
+
+Step 2: Thread H wants Lock B (held by M) - NESTED DONATION
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│  Thread L   │         │  Thread M   │         │  Thread H   │
+│ priority=30 │◄───┐    │ priority=30 │◄───┐    │ priority=30 │
+│ base_pr=10  │    │    │ base_pr=20  │    │    │ base_pr=30  │
+│ donors={M}  │    └────│ waiting_on=A│    └────│ waiting_on=B│
+└─────────────┘         │ donors={H}  │         │ donors={}   │
+                        └─────────────┘         └─────────────┘
+         Chain donation: H->M (30) → M->L (30)
+         Result: L gets priority 30 through the chain
+
+Step 3: Thread L releases Lock A
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│  Thread L   │         │  Thread M   │         │  Thread H   │
+│ priority=10 │         │ priority=30 │◄───┐    │ priority=30 │
+│ base_pr=10  │         │ base_pr=20  │    │    │ base_pr=30  │
+│ donors={}   │         │ waiting_on=∅│    └────│ waiting_on=B│
+└─────────────┘         │ donors={H}  │         │ donors={}   │
+                        └─────────────┘         └─────────────┘
+         M acquires Lock A, L's priority restored to 10
+
+Step 4: Thread M releases Lock B
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│  Thread L   │         │  Thread M   │         │  Thread H   │
+│ priority=10 │         │ priority=20 │         │ priority=30 │
+│ base_pr=10  │         │ base_pr=20  │         │ base_pr=30  │
+│ donors={}   │         │ donors={}   │         │ waiting_on=∅│
+└─────────────┘         └─────────────┘         └─────────────┘
+         H acquires Lock B, M's priority restored to 20
 ---- ALGORITHMS ----
 
 >> B3: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?
+I ensure that the it is the highest priority thread that gets waken up first by ensuring that the list
+is organized through using thread_priority_comparison() and thread_semaphore_comparison while also making sure
+that all of the priority is updated whenever it does get modified
 
 >> B4: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
+When it is called, it will check to see if there is a holder for the lock. In the case that it is, then
+it will call donate_priority() where the thread will donate it's priority to the holder of the lock since that is tracked within the structure of lock
+In the case of a nested donation, the thread will check to see if the holder of the lock is waiting for a different lock. If yes, then it will save that lock as the lock that it is waiting on
+
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
+When lock_release() is called, it will update it's own priority using base_priority since it is no longer receiving the priority of that higher-priority thread and release the lock to the next waiter in line. In the case of there being multiple threads waiting for the lock, since we keep the list of waiter organized, then the lock will go to the thread with the highest priority.
+
 
 ---- SYNCHRONIZATION ----
 
 >> B6: Describe a potential race in thread_set_priority() and explain
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
+A potential race in thread_set_priority could happen when we are trying to set a thread's priority to a different value while there is another priority update happening through donation or releasing locks.
+My implementation avoids this by saving a thread's base_priority which wouldn't get modified anywhere else other than thread_set_priority().
+
+Using a lock can avoid this race since it would stop multiple codes from modifying the priority of a thread.
 
 ---- RATIONALE ----
 
 >> B7: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+I had chosen this design since it is straight forward in terms of what we learned in class which is that each thread have a set priority and we want to make sure that whichever thread that has the highest priority would run first. Using this design is very intuitive when it comes to priority donation since we have the base_priority for us to remember once the donation is done, and the actual priority which we would be modifying in the case that a higher thread is in need of that lock as well. Nested Donation through chaining is straight forward as well since we are chaining thread -> lock -> thread together in the case that it is needed.
+
+I did not consider for there to be another design that would be possible to implement the scheduling.
 
 			  ADVANCED SCHEDULER
 			  ==================
