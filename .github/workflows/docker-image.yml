@@ -48,7 +48,7 @@ jobs:
               source setup.sh && \
               cd src/threads && \
               make clean && \
-              make check\
+              make check &> test_results.txt\
             "
         continue-on-error: true
         
