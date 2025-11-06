@@ -98,6 +98,18 @@ struct thread
     struct lock *waiting_on;            // The lock that our thread is waiting on
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*Included for lab 2*/
+   struct child_process
+      {
+      pid_t pid;                      /* Process ID */
+      int exit_status;                /* Exit status */
+      bool waited;                    /* Already waited */
+      bool exited;                    /* Has exited */
+      struct semaphore wait_sema;     /* Semaphore for waiting */
+      struct list_elem elem;          /* List element */
+      };
+
+
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
