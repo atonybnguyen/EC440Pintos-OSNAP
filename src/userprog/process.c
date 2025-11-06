@@ -18,13 +18,45 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+
+/* Include for Lab 2*/
+#include "threads/malloc.h"
+#include "threads/synch.h"
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void parse_args(char *cmd_line, char **argv, int *argc);
+
+
+static void parse_args (char *cmd_line, char **argv, int *argc)
+{
+  char *token, *save_ptr;
+  *argc = 0;
+  
+  /* strtok_r() returns a pointer to the first token from parsing */
+  /* Runs a loop until strtok_r returns NULL which means no more spaces to parse */
+  for (token = strtok_r (cmd_line, " ", &save_ptr); token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr))
+    {
+    /* At each iteration, move the pointer */
+    argv[*argc] = token;
+    *argc++;
+  }
+  /* End it with a null byte to end a string */
+  argv[*argc] = NULL;
+}
+/* argv[0] = command
+   argv[1] = first argument
+   argv[2] = second argument, and etc.
+
+*/
+
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
+
 tid_t
 process_execute (const char *file_name) 
 {
@@ -37,6 +69,12 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+
+
+  char *esp;
+  char *prog_name = malloc(strlen (filename) + 1);
+  strlcpy (prog_name, file_name, strlen (filename) + 1);
+  prog_name = strtok_r(prog_name, " ". &esp);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -88,7 +126,39 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  struct thread *current_thread = thread_current();
+  struct list_elem *e;
+  
+  /* Iterate through list of child processes and find the correct process */
+  for (e = list_begin (&cur->children); e != list_end (&cur->children);
+       e = list_next (e))
+  {
+    struct child_process *c = list_entry (e, struct child_process, elem);
+    if (c->pid == child_tid)
+    {
+      child = c;
+      break;
+    }
+  }
+
+  if (*child == NULL | child -> waited){
+    return -1; //All work is done, no need to do anything
+  }
+
+  /* If not waited, wait now */
+  child->waited = true;
+
+  /* If not exited yet, then sema down until it is */
+  if (!child->exited){
+    sema_down(&child->wait_sema);
+  }  
+
+  /* Have to save the exit status prior to freeing it */
+  int exit_status = child->exit_status;
+  list_remove(&child->elem);
+  free(child);
+
+  return exit_status;
 }
 
 /* Free the current process's resources. */
