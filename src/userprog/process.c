@@ -18,13 +18,45 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+
+/* Include for Lab 2*/
+#include "threads/malloc.h"
+#include "threads/synch.h"
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void parse_args(char *cmd_line, char **argv, int *argc);
+
+
+static void parse_args (char *cmd_line, char **argv, int *argc)
+{
+  char *token, *save_ptr;
+  *argc = 0;
+  
+  /* strtok_r() returns a pointer to the first token from parsing */
+  /* Runs a loop until strtok_r returns NULL which means no more spaces to parse */
+  for (token = strtok_r (cmd_line, " ", &save_ptr); token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr))
+    {
+    /* At each iteration, move the pointer */
+    argv[*argc] = token;
+    (*argc)++;
+  }
+  /* End it with a null byte to end a string */
+  argv[*argc] = NULL;
+}
+/* argv[0] = command
+   argv[1] = first argument
+   argv[2] = second argument, and etc.
+
+*/
+
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
+
 tid_t
 process_execute (const char *file_name) 
 {
@@ -37,6 +69,12 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+
+
+  char *esp;
+  char *prog_name = malloc(strlen (filename) + 1);
+  strlcpy (prog_name, file_name, strlen (filename) + 1);
+  prog_name = strtok_r(prog_name, " ". &esp);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -88,7 +126,9 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  while(1){
+  ;
+  }
 }
 
 /* Free the current process's resources. */
@@ -437,7 +477,7 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        *esp = PHYS_BASE - 12;
       else
         palloc_free_page (kpage);
     }
