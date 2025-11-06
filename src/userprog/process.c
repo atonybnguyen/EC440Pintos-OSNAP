@@ -40,7 +40,7 @@ static void parse_args (char *cmd_line, char **argv, int *argc)
     {
     /* At each iteration, move the pointer */
     argv[*argc] = token;
-    *argc++;
+    (*argc)++;
   }
   /* End it with a null byte to end a string */
   argv[*argc] = NULL;
@@ -141,7 +141,7 @@ process_wait (tid_t child_tid UNUSED)
     }
   }
 
-  if (*child == NULL | child -> waited){
+  if ((*child == NULL) || (child -> waited)){
     return -1; //All work is done, no need to do anything
   }
 
