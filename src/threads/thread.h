@@ -94,7 +94,6 @@ typedef int pid_t;
       int exit_status;                /* Exit status */
       bool waited;                    /* Already waited */
       bool exited;                    /* Has exited */
-      struct semaphore wait_sema;     /* Semaphore for waiting */
       struct list_elem elem;          /* List element */
       };
 
