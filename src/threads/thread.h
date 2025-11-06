@@ -18,7 +18,10 @@ enum thread_status
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
-#define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
+#define TID_ERROR ((tid_t) -1)         /* Error value for tid_t. */3
+
+typedef int pid_t;
+#define PID_ERROR((pid_t) -1)
 
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
@@ -81,6 +84,19 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
+////////////////////////////////////////////////////////////////////////////////////
+/*Included for lab 2*/
+   struct child_process
+      {
+      pid_t pid;                      /* Process ID */
+      int exit_status;                /* Exit status */
+      bool waited;                    /* Already waited */
+      bool exited;                    /* Has exited */
+      struct semaphore wait_sema;     /* Semaphore for waiting */
+      struct list_elem elem;          /* List element */
+      };
+////////////////////////////////////////////////////////////////////////////////////
 struct thread
   {
     /* Owned by thread.c. */
@@ -98,17 +114,13 @@ struct thread
     struct lock *waiting_on;            // The lock that our thread is waiting on
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/*Included for lab 2*/
-   struct child_process
-      {
-      pid_t pid;                      /* Process ID */
-      int exit_status;                /* Exit status */
-      bool waited;                    /* Already waited */
-      bool exited;                    /* Has exited */
-      struct semaphore wait_sema;     /* Semaphore for waiting */
-      struct list_elem elem;          /* List element */
-      };
-
+/* FOR LAB 2 */
+    struct file *file_descriptors[128];
+    struct thread *parent;
+    struct list children;
+    int exit_status;
+    struct file *executable;
+////////////////////////////////////////////////////////////////////////////////////
 
 
     /* Shared between thread.c and synch.c. */
