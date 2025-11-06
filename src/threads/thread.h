@@ -21,7 +21,7 @@ typedef int tid_t;
 #define TID_ERROR ((tid_t) -1)         /* Error value for tid_t. */3
 
 typedef int pid_t;
-#define PID_ERROR((pid_t) -1)
+
 
 /* Thread priorities. */
 #define PRI_MIN 0                       /* Lowest priority. */
@@ -85,18 +85,20 @@ typedef int pid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 
-////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /*Included for lab 2*/
+
    struct child_process
       {
-      pid_t pid;                      /* Process ID */
+      tid_t pid;                      /* Process ID */
       int exit_status;                /* Exit status */
       bool waited;                    /* Already waited */
       bool exited;                    /* Has exited */
       struct semaphore wait_sema;     /* Semaphore for waiting */
       struct list_elem elem;          /* List element */
       };
-////////////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 struct thread
   {
     /* Owned by thread.c. */
