@@ -5,6 +5,7 @@
 #include "threads/thread.h"
 /* Additional Libraries */
 #include "devices/shutdown.h"
+#include "userprog/process.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -35,17 +36,17 @@ syscall_handler (struct intr_frame *f UNUSED)
   switch(syscall){
     case SYS_EXIT:
       //Exiting the thread from user input
-      exit(*(esp+1));
+      sys_exit(*(esp+1));
       //Breaking here since we are exiting 
       break;
     case SYS_HALT:
-      halt();
+      sys_halt();
       break;
     case SYS_WRITE: //Note: Has 3 arguments
-      f -> eax = write(*(esp + 1), *(esp+2), *(esp+3));
+      f -> eax = sys_write(*(esp + 1), *(esp+2), *(esp+3));
       break;
     default:
-      exit(-1);
+      sys_exit(-1);
       break;
   }
 }
@@ -64,7 +65,7 @@ static void sys_halt(){
 
 static int sys_write(int fd, const void *buffer, unsigned int size){
 /* for fd = 1, writing to console */
-  if (fd = 1){
+  if (fd == 1){
     /* putbuf writes N characters from the buffer to the console */
     putbuf(buffer,size);
   }
