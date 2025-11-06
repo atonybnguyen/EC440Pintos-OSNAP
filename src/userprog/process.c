@@ -126,39 +126,9 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  struct thread *current_thread = thread_current();
-  struct list_elem *e;
-  
-  /* Iterate through list of child processes and find the correct process */
-  for (e = list_begin (&cur->children); e != list_end (&cur->children);
-       e = list_next (e))
-  {
-    struct child_process *c = list_entry (e, struct child_process, elem);
-    if (c->pid == child_tid)
-    {
-      child = c;
-      break;
-    }
+  while(1){
+  ;
   }
-
-  if ((*child == NULL) || (child -> waited)){
-    return -1; //All work is done, no need to do anything
-  }
-
-  /* If not waited, wait now */
-  child->waited = true;
-
-  /* If not exited yet, then sema down until it is */
-  if (!child->exited){
-    sema_down(&child->wait_sema);
-  }  
-
-  /* Have to save the exit status prior to freeing it */
-  int exit_status = child->exit_status;
-  list_remove(&child->elem);
-  free(child);
-
-  return exit_status;
 }
 
 /* Free the current process's resources. */
