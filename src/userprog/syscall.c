@@ -13,7 +13,7 @@ static void syscall_handler (struct intr_frame *);
 static void sys_exit(int status);
 static void sys_halt();
 static int sys_write(int fd, const void *buffer, unsigned int size);
-
+static bool sys_create(const char *file, unsigned initial_size);
 
 void
 syscall_init (void) 
@@ -45,6 +45,9 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_WRITE: //Note: Has 3 arguments
       f -> eax = sys_write(*(esp + 1), *(esp+2), *(esp+3));
       break;
+    case SYS_CREATE:
+      f-> eax = sys_create((char *) *(esp + 1), *(esp + 2));
+      break;
     default:
       sys_exit(-1);
       break;
@@ -71,5 +74,15 @@ static int sys_write(int fd, const void *buffer, unsigned int size){
   }
 }
 
+/* Create a new file called "file:, with n bytes in size */
+/* Return true if successful, otherwise return false */
+static bool sys_create(const char *file, unsigned initial_size){
+  if (*file == NULL){
+    sys_exit(-1); // Invalid file name so exit
+  }
+
+  /* INCLUDE LOGIC HERE TO SYNCHRONIZE WITH FILE ONCE THAT IS DONE */
+  return true; // Remove this once done
+}
 
 
