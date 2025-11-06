@@ -35,17 +35,19 @@ syscall_handler (struct intr_frame *f UNUSED)
   switch(syscall){
     case SYS_EXIT:
       //Exiting the thread from user input
-      sys_exit(*(esp+1));
+      exit(*(esp+1));
       //Breaking here since we are exiting 
       break;
     case SYS_HALT:
-      sys_halt();
+      halt();
       break;
-    case SYS_WRITE; //Note: Has 3 arguments
-      f -> eax = sys_write(*(esp + 1), *(esp+2), *(esp+3));
+    case SYS_WRITE: //Note: Has 3 arguments
+      f -> eax = write(*(esp + 1), *(esp+2), *(esp+3));
+      break;
+    default:
+      exit(-1);
       break;
   }
-  thread_exit ();
 }
 
 static void sys_exit(int status){
