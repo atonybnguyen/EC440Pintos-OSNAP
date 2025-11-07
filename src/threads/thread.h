@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/fixed.h"
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -98,6 +99,9 @@ typedef int pid_t;
       bool waited;                    /* Already waited */
       bool exited;                    /* Has exited */
       struct list_elem elem;          /* List element */
+
+      struct semaphore wait_sema;   /* Semaphore for wait */
+      struct semaphore load_sema;   /* Semaphore for load */
       };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -124,6 +128,7 @@ struct thread
     struct list children;
     int exit_status;
     struct file *executable;
+    struct child_process *my_record;
 ////////////////////////////////////////////////////////////////////////////////////
 
 
