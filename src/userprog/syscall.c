@@ -4,8 +4,14 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 /* Additional Libraries */
-#include "devices/shutdown.h"
+#include <string.h>
 #include "userprog/process.h"
+#include "userprog/pagedir.h" 
+#include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "devices/shutdown.h"    // shutdown_power_off (for halt)
+#include "filesys/filesys.h"        /* filesys_create */
+#include "filesys/file.h"           /* file_allow_write, file_close */
 
 static void syscall_handler (struct intr_frame *);
 
@@ -22,75 +28,166 @@ static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
 
+static void uaddr_check(const void *u);
+static uint32_t uarg(struct intr_frame *f, int i);
+static void *uarg_ptr(struct intr_frame *f, int i);
+static const char *uarg_cstr(struct intr_frame *f, int i);
+static bool valid_urange(const void *uaddr, size_t size);
+static bool copy_in(void *kdst, const void *usrc, size_t n);
+static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
+
+struct lock fs_lock;                               // one global FS lock
+
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init(&file_lock);
+  lock_init(&fs_lock);
 }
 
+
 static void
-syscall_handler (struct intr_frame *f UNUSED) 
-{
-  printf ("system call!\n");
+syscall_handler(struct intr_frame *f) {
 
-  //Casting the stack pointer at the point of intr into esp
-  //Treats the memory stack as an array of int
-  int *esp = (int *) f->esp;
+  // First validate that f->esp itself is a sane user pointer.
+  uaddr_check(f->esp);
 
-  //Getting the syscall
-  int syscall = *esp;
+  uint32_t no = uarg(f, 0);
 
-  switch(syscall){
-    case SYS_EXIT:
-      //Exiting the thread from user input
-      sys_exit(*(esp+1));
-      //Breaking here since we are exiting 
-      break;
-    case SYS_HALT:
+  switch (no) {
+    case SYS_HALT: {
       sys_halt();
+      // no return
       break;
-    case SYS_WRITE: //Note: Has 3 arguments
-      f -> eax = sys_write(*(esp + 1), *(esp+2), *(esp+3));
+    }
+
+    case SYS_EXIT: {
+      int status = (int) uarg(f, 1);
+      sys_exit(status);
+      break; // not reached
+    }
+
+    case SYS_WRITE: {
+      int fd = (int) uarg(f, 1);
+      const void *ubuf = (const void*) uarg_ptr(f, 2);
+      unsigned size = (unsigned) uarg(f, 3);
+      // Inside sys_write you must validate/copy the buffer range (chunking ok)
+      f->eax = (uint32_t) sys_write(fd, ubuf, size);
       break;
-    case SYS_CREATE:
-      f-> eax = sys_create((char *) *(esp + 1), *(esp + 2));
+    }
+
+    case SYS_CREATE: {
+      const char *uname = uarg_cstr(f, 1);
+      unsigned initial = (unsigned) uarg(f, 2);
+      // Inside sys_create: copy user C-string to a kernel buffer with a cap
+      f->eax = (uint32_t) sys_create(uname, initial);
       break;
     case SYS_REMOVE:
       f-> eax = sys_remove((char *) *(esp + 1));
       break;
-    default: 
+    default:
       sys_exit(-1);
-      break;
   }
 }
 
 static void sys_exit(int status){
   struct thread *cur_thread = thread_current();
-  cur_thread->status = status;
+  cur_thread->exit_status = status;
 
   printf ("%s: exit(%d)\n", cur_thread -> name, status);
-  thread_exit();
+
+  // TODO: close all open FDs once you add the fd table
+  // fd_close_all(t);
+
+  // If you deny writes to the executable, re-allow and close it here
+  if (cur_thread->executable) {
+    lock_acquire(&fs_lock);
+    file_allow_write(cur_thread->executable);
+    file_close(cur_thread->executable);
+    lock_release(&fs_lock);
+    cur_thread->executable = NULL;
+
+  }
+
+  // TODO (later): notify parent/waiters via child-info struct & sema_up()
+
+  thread_exit();  // never returns
 }
 
 static void sys_halt(){
   shutdown_power_off();
 }
 
-static int sys_write(int fd, const void *buffer, unsigned int size){
-/* for fd = 1, writing to console */
-  if (fd == 1){
-    /* putbuf writes N characters from the buffer to the console */
-    putbuf(buffer,size);
+static int sys_write(int fd, const void *ubuf, unsigned size) {
+  if (fd != 1) return -1;                 // stdout only for now
+  if (size == 0) return 0;
+
+  const size_t CHUNK = 512;
+  size_t done = 0;
+  uint8_t kbuf[CHUNK];
+
+  while (done < size) {
+    size_t n = size - done; if (n > CHUNK) n = CHUNK;
+    if (!copy_in(kbuf, (const uint8_t*)ubuf + done, n)) sys_exit(-1);
+    putbuf((const char*)kbuf, n);
+    done += n;
   }
+  return (int)done;
 }
 
-/* Create a new file called "file:, with n bytes in size */
-/* Return true if successful, otherwise return false */
-static bool sys_create(const char *file, unsigned initial_size){
-  if (*file == NULL){
-    sys_exit(-1); // Invalid file name so exit
+static bool sys_create(const char *u_file, unsigned initial_size) {
+  if (u_file == NULL) sys_exit(-1);
+
+  /* Copy user string into a kernel buffer with a reasonable cap */
+  char kname[256];                                   /* cap: 255 bytes + NUL */
+  ssize_t len = copy_in_cstr(kname, u_file, sizeof kname);
+  if (len < 0) sys_exit(-1);                         /* bad pointer or no NUL */
+  if (kname[0] == '\0') return false;                /* empty name not allowed */
+
+  bool ok;
+  lock_acquire(&fs_lock);
+  ok = filesys_create(kname, initial_size);
+  lock_release(&fs_lock);
+  return ok;
+}
+
+////////////////////////// HELPERS ////////////////////
+
+// Returns true iff ptr is a mapped user address.
+static bool valid_uaddr(const void *uaddr) {
+  return uaddr != NULL && is_user_vaddr(uaddr) && pagedir_get_page(thread_current()->pagedir, uaddr) != NULL;
+}
+
+static inline void uaddr_check(const void *u) {
+  if (!valid_uaddr(u)) sys_exit(-1);  // terminate offending process
+}
+
+// For pointer args, just return the user pointer after validating the *pointer value* itself.
+// You will still validate/copy the pointed-to buffer/string at use time.
+static void* uarg_ptr(struct intr_frame *f, int i) {
+  uint32_t raw = uarg(f, i);
+  if (raw >= (uint32_t)PHYS_BASE) sys_exit(-1);
+  return (void*) raw;
+}
+
+static const char* uarg_cstr(struct intr_frame *f, int i) {
+  return (const char*) uarg_ptr(f, i);
+}
+
+// Validate an entire [uaddr, uaddr + size) range, page by page.
+static bool valid_urange(const void *uaddr, size_t size) {
+  const uint8_t *ptr = (const uint8_t *)uaddr;
+  const uint8_t *end = ptr + size;
+  while (ptr < end) {
+    if (!valid_uaddr(ptr)) return false;
+    // jump to next page (avoid O(size) loops on huge buffers)
+    size_t advance = PGSIZE - pg_ofs(ptr);
+    if (advance == 0) advance = PGSIZE;
+    if (ptr + advance < ptr) return false; // overflow guard
+    ptr += advance;
   }
+  return size == 0 || valid_uaddr((const uint8_t*)uaddr + size - 1);
+}
 
   /* Have a lock here to not corrupt any file from*/
   lock_acquire(&file_lock);
@@ -110,5 +207,32 @@ static bool sys_remove(const char *file){
   lock_release (&file_lock);
 
   return success;
+// Copy user -> kernel; returns false on first bad byte/page.
+static bool copy_in(void *kdst, const void *usrc, size_t n) {
+  if (!valid_urange(usrc, n)) return false;
+  memcpy(kdst, usrc, n);
+  return true;
 }
 
+// Copy a NUL-terminated string from user into a kernel buffer with a cap.
+// Returns length on success (excluding NUL), or -1 on failure.
+static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap) {
+  // cap should be a reasonable limit (e.g., PGSIZE) to avoid scanning forever.
+  for (size_t i = 0; i < cap; i++) {
+    const char *up = ustr + i;
+    if (!valid_uaddr(up)) return -1;
+    char c = *(volatile const char *)up; // avoid clever compiler moves
+    kbuf[i] = c;
+    if (c == '\0') return (ssize_t)i;
+  }
+  return -1; // not NUL-terminated within cap
+}
+
+// Fetch a 32-bit arg from user stack at esp + 4*i
+static uint32_t uarg(struct intr_frame *f, int i) {
+  const void *p = (const uint8_t*) f->esp + 4*i;
+  // Validate the 4-byte range (start and end)
+  uaddr_check(p);
+  uaddr_check((const uint8_t*)p + 3);
+  return *(const uint32_t*) p;
+}
