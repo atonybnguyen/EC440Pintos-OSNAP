@@ -149,7 +149,7 @@ syscall_handler(struct intr_frame *f) {
     case SYS_TELL: {
       int fd = (int) uarg(f, 1);
       sys_tell(fd);
-       break
+       break;
     }
     
     default:
