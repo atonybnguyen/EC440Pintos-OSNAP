@@ -25,7 +25,7 @@ typedef int ssize_t;
 
 /* Helper functions Added for Lab2 */
 static void sys_exit(int status);
-static void sys_halt();
+static void sys_halt(void);
 static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
@@ -107,29 +107,20 @@ syscall_handler(struct intr_frame *f) {
       const char *cmd_line = uarg_cstr(f, 1);
       f->eax = (uint32_t) sys_exec(cmd_line);
       break;
-      
-    case SYS_REMOVE:
-      f-> eax = sys_remove((char *) *(esp + 1));
-      break;
 
-    case SYS_OPEN;
+    case SYS_OPEN:
       const char *uname = uarg_cstr(f, 1);
       f->eax = (uint32_t)sys_open(uname);
       break;
       
-    default:
-    }
-
-    case SYS_WAIT: {
+    case SYS_WAIT:
       pid_t pid = (pid_t) uarg(f, 1);
       f->eax = (uint32_t) sys_wait(pid);
       break;
-    }
 
-    default: {
+    default:
       sys_exit(-1);
-      break; 
-    }
+      break;
   }
 }
 
@@ -157,7 +148,7 @@ static void sys_exit(int status){
   thread_exit();  // never returns
 }
 
-static void sys_halt(){
+static void sys_halt(void){
   shutdown_power_off();
 }
 
@@ -225,7 +216,7 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
     }
     if (len < 0) sys_exit(-1);                    // Length should never be less than 0
     if (kname[0] == '\0') return -1;              // Name should never be null as well
-    strncpy(kname, u_file, buffersize-1);         //Scary function, need protection from buffer overflow stuff
+    strlcpy(kname, u_file, buffersize-1);         //Scary function, need protection from buffer overflow stuff
     kname[buffersize-1] = "\0";                   //Adding null byte to end a string
     
     /* Open the file */
