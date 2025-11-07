@@ -135,6 +135,12 @@ syscall_handler(struct intr_frame *f) {
       unsigned position = (unsigned) uarg(f, 2);
       sys_seek(fd, position);
     }
+
+    case SYS_TELL: {
+      int fd = (int) uarg(f, 1);           // validate user stack arg
+      f->eax = sys_tell(fd);
+      break;
+    }
     
     default:
       sys_exit(-1);
@@ -291,6 +297,16 @@ static void sys_seek(int fd, unsigned position){
   file_seek(fd, position);
   lock_release(&file_lock);
 
+}
+
+static unsigned sys_tell (int fd) {
+  if (fd == 0 || fd == 1) return 0u;                 // stdin/stdout: no offset
+  struct file *f = fd_to_file(fd);                   // your lookup (NULL if bad)
+  if (f == NULL) return (unsigned)-1;
+  lock_acquire(&file_lock);
+  off_t pos = file_tell(f);
+  lock_release(&file_lock);
+  return (unsigned) pos;
 }
 
 
