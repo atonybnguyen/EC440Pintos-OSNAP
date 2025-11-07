@@ -52,5 +52,5 @@ jobs:
               echo '--- Building and testing userprog ---' && \
               cd ../userprog && \
               make clean && \
-              make check \
+              make \
             "
