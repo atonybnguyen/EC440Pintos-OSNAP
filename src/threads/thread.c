@@ -744,6 +744,9 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->donors);
   t->waiting_on = NULL;
 
+  /* user prog child list initilization*/
+  list_init (&t->children);
+
   /* MLFQS fields */
   t->nice = 0;
   t->recent_cpu = 0;

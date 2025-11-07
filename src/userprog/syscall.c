@@ -7,17 +7,19 @@
 #include <string.h>
 #include "userprog/process.h"
 #include "userprog/pagedir.h" 
-#include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "devices/shutdown.h"    // shutdown_power_off (for halt)
 #include "filesys/filesys.h"        /* filesys_create */
 #include "filesys/file.h"           /* file_allow_write, file_close */
+#include "threads/synch.h"        /* lock_init, lock_acquire, lock_release */
+
 
 static void syscall_handler (struct intr_frame *);
 
 /* Added a lock for synchronization */
 /* The read and write situation probably */
 static struct lock file_lock;
+typedef int ssize_t;
 
 
 /* Helper functions Added for Lab2 */
@@ -25,8 +27,9 @@ static void sys_exit(int status);
 static void sys_halt();
 static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
-static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
+static pid_t sys_exec(const char *cmd_line);
+static int sys_wait(pid_t pid);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -82,11 +85,30 @@ syscall_handler(struct intr_frame *f) {
       // Inside sys_create: copy user C-string to a kernel buffer with a cap
       f->eax = (uint32_t) sys_create(uname, initial);
       break;
-    case SYS_REMOVE:
-      f-> eax = sys_remove((char *) *(esp + 1));
+    }
+
+    case SYS_REMOVE: {
+      const char *uname = uarg_cstr(f, 1);
+      f->eax = (uint32_t) sys_remove(uname);
       break;
-    default:
+    }
+
+    case SYS_EXEC: {
+      const char *cmd_line = uarg_cstr(f, 1);
+      f->eax = (uint32_t) sys_exec(cmd_line);
+      break;
+    }
+
+    case SYS_WAIT: {
+      pid_t pid = (pid_t) uarg(f, 1);
+      f->eax = (uint32_t) sys_wait(pid);
+      break;
+    }
+
+    default: {
       sys_exit(-1);
+      break; 
+    }
   }
 }
 
@@ -116,6 +138,22 @@ static void sys_exit(int status){
 
 static void sys_halt(){
   shutdown_power_off();
+}
+
+pid_t sys_exec (const char *cmd_line) {
+  if (cmd_line == NULL) sys_exit(-1);
+
+  char kcmd_line[256];                     /* buffer */             
+  ssize_t len = copy_in_cstr(kcmd_line, cmd_line, sizeof kcmd_line);
+  if (len < 0) sys_exit(-1);                       
+  if (kcmd_line[0] == '\0') return -1;                /* empty name */
+
+  pid_t pid = process_execute(kcmd_line);
+  return pid;
+}
+
+static int sys_wait (pid_t pid){
+  return process_wait(pid);
 }
 
 static int sys_write(int fd, const void *ubuf, unsigned size) {
@@ -189,16 +227,17 @@ static bool valid_urange(const void *uaddr, size_t size) {
   return size == 0 || valid_uaddr((const uint8_t*)uaddr + size - 1);
 }
 
-  /* Have a lock here to not corrupt any file from*/
+  /* Have a lock here to not corrupt any file from
   lock_acquire(&file_lock);
   bool success = filesys_create(file, initial_size);
   lock_release(&file_lock);
 
-  return success;
-}
+  return true;
+  */
+
 
 static bool sys_remove(const char *file){
-  if (*file == NULL){
+  if (file == NULL){
     sys_exit(-1);
   }
 
@@ -207,6 +246,8 @@ static bool sys_remove(const char *file){
   lock_release (&file_lock);
 
   return success;
+}
+
 // Copy user -> kernel; returns false on first bad byte/page.
 static bool copy_in(void *kdst, const void *usrc, size_t n) {
   if (!valid_urange(usrc, n)) return false;
