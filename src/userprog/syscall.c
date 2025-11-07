@@ -35,6 +35,7 @@ static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static int sys_filesize(int fd);
 static void sys_seek(int fd, unsigned position);
+static unsigned sys_tell(int fd);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -134,6 +135,12 @@ syscall_handler(struct intr_frame *f) {
       int fd = (int) uarg(f, 1);
       unsigned position = (unsigned) uarg(f, 2);
       sys_seek(fd, position);
+    }
+
+    case SYS_TELL: {
+      int fd = (int) uarg(f, 1);
+      sys_tell(fd);
+       break
     }
     
     default:
@@ -290,9 +297,20 @@ static void sys_seek(int fd, unsigned position){
   lock_acquire(&file_lock);
   file_seek(fd, position);
   lock_release(&file_lock);
-
 }
 
+static int sys_tell(int fd){
+  if (fd <= 1) return 0;
+
+  struct file *file = fd_get(fd)
+  if (file == NULL) return 0;
+
+  lock_acquire(&file_lock);
+  unsigned positon = file_tell(file);
+  lock_release(&file_lock);
+
+  return position;
+}
 
 ////////////////////////// HELPERS ////////////////////
 
