@@ -9,16 +9,24 @@
 
 static void syscall_handler (struct intr_frame *);
 
+/* Added a lock for synchronization */
+/* The read and write situation probably */
+static struct lock file_lock;
+
+
 /* Helper functions Added for Lab2 */
 static void sys_exit(int status);
 static void sys_halt();
 static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
+static bool sys_create(const char *file, unsigned initial_size);
+static bool sys_remove(const char *file);
 
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init(&file_lock);
 }
 
 static void
@@ -48,7 +56,10 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CREATE:
       f-> eax = sys_create((char *) *(esp + 1), *(esp + 2));
       break;
-    default:
+    case SYS_REMOVE:
+      f-> eax = sys_remove((char *) *(esp + 1));
+      break;
+    default: 
       sys_exit(-1);
       break;
   }
@@ -81,8 +92,23 @@ static bool sys_create(const char *file, unsigned initial_size){
     sys_exit(-1); // Invalid file name so exit
   }
 
-  /* INCLUDE LOGIC HERE TO SYNCHRONIZE WITH FILE ONCE THAT IS DONE */
-  return true; // Remove this once done
+  /* Have a lock here to not corrupt any file from*/
+  lock_acquire(&file_lock);
+  bool success = filesys_create(file, initial_size);
+  lock_release(&file_lock);
+
+  return success;
 }
 
+static bool sys_remove(const char *file){
+  if (*file == NULL){
+    sys_exit(-1);
+  }
+
+  lock_acquire (&file_lock);
+  bool success = filesys_remove(file);
+  lock_release (&file_lock);
+
+  return success;
+}
 
