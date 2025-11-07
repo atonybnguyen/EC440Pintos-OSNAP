@@ -27,6 +27,7 @@ static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
+static int sys_open(const char *u_file);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -82,9 +83,16 @@ syscall_handler(struct intr_frame *f) {
       // Inside sys_create: copy user C-string to a kernel buffer with a cap
       f->eax = (uint32_t) sys_create(uname, initial);
       break;
+      
     case SYS_REMOVE:
       f-> eax = sys_remove((char *) *(esp + 1));
       break;
+
+    case SYS_OPEN;
+      const char *uname = uarg_cstr(f, 1);
+      f->eax = (uint32_t)sys_open(uname);
+      break;
+      
     default:
       sys_exit(-1);
   }
@@ -150,6 +158,46 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
   lock_release(&fs_lock);
   return ok;
 }
+
+
+  static int sys_open(const char *u_file) {
+    if (u_file == NULL){ 
+      sys_exit(-1);
+    }
+      
+    /* Copy user string into kernel buffer */
+    char kname[256];
+    int buffersize = sizeof(kname);
+    int len = strlen(u_file);
+    if (len >= buffersize){
+      sys_exit(-1);      //Accessing out of bound
+    }
+    if (len < 0) sys_exit(-1);                    // Length should never be less than 0
+    if (kname[0] == '\0') return -1;              // Name should never be null as well
+    strncpy(kname, u_file, buffersize-1);         //Scary function, need protection from buffer overflow stuff
+    kname[buffersize-1] = "\0";                   //Adding null byte to end a string
+    
+    /* Open the file */
+    lock_acquire(&file_lock);
+    struct file *f = filesys_open(kname);
+    lock_release(&file_lock);
+    if (f == NULL) return -1;                  
+  
+    /* Find an available file descriptor slot */
+    struct thread *t = thread_current();
+    int fd;
+    for (fd = 2; fd < FD_MAX; fd++) {        //Reserving fd 0 and 1 for stdin/out
+      if (t->file_descriptors[fd] == NULL) {
+        t->file_descriptors[fd] = f;
+        return fd;                                 /* success */
+      }
+    }
+    /* In the case the there is no file descriptor left, close */
+    lock_acquire(&file_lock);
+    file_close(f);
+    lock_release(&file_lock);
+    return -1;
+  }
 
 ////////////////////////// HELPERS ////////////////////
 
