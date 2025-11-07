@@ -3,15 +3,16 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include <sys/types.h>
 /* Additional Libraries */
 #include <string.h>
 #include "userprog/process.h"
 #include "userprog/pagedir.h" 
-#include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "devices/shutdown.h"    // shutdown_power_off (for halt)
 #include "filesys/filesys.h"        /* filesys_create */
 #include "filesys/file.h"           /* file_allow_write, file_close */
+
 
 static void syscall_handler (struct intr_frame *);
 
@@ -25,8 +26,8 @@ static void sys_exit(int status);
 static void sys_halt();
 static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
-static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
+static void sys_close(int fd);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -36,13 +37,15 @@ static bool valid_urange(const void *uaddr, size_t size);
 static bool copy_in(void *kdst, const void *usrc, size_t n);
 static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
 
-struct lock fs_lock;                               // one global FS lock
+//Helpers
+static struct file *fd_detach(int fd); /* Helper to detach a single from from file_descriptors */
+static void fd_close_all(void); /*Close all fds during sys exit*/
 
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init(&fs_lock);
+  lock_init(&file_lock);
 }
 
 
@@ -78,15 +81,27 @@ syscall_handler(struct intr_frame *f) {
 
     case SYS_CREATE: {
       const char *uname = uarg_cstr(f, 1);
-      unsigned initial = (unsigned) uarg(f, 2);
-      // Inside sys_create: copy user C-string to a kernel buffer with a cap
-      f->eax = (uint32_t) sys_create(uname, initial);
+      unsigned initial = (unsigned)uarg(f, 2);
+      f->eax = (uint32_t)sys_create(uname, initial);
       break;
-    case SYS_REMOVE:
-      f-> eax = sys_remove((char *) *(esp + 1));
+    }
+
+    case SYS_REMOVE: {
+      const char *uname = uarg_cstr(f, 1);
+      f->eax = (uint32_t)sys_remove(uname);
       break;
+    }
+
+    case SYS_CLOSE: {
+      int fd = (int)uarg(f, 1);
+      sys_close(fd);                 // void; no f->eax
+      break;
+    }  
+
     default:
       sys_exit(-1);
+
+    
   }
 }
 
@@ -96,15 +111,15 @@ static void sys_exit(int status){
 
   printf ("%s: exit(%d)\n", cur_thread -> name, status);
 
-  // TODO: close all open FDs once you add the fd table
-  // fd_close_all(t);
+  // close all open FDs 
+  fd_close_all();
 
   // If you deny writes to the executable, re-allow and close it here
   if (cur_thread->executable) {
-    lock_acquire(&fs_lock);
+    lock_acquire(&file_lock);
     file_allow_write(cur_thread->executable);
     file_close(cur_thread->executable);
-    lock_release(&fs_lock);
+    lock_release(&file_lock);
     cur_thread->executable = NULL;
 
   }
@@ -145,10 +160,19 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
   if (kname[0] == '\0') return false;                /* empty name not allowed */
 
   bool ok;
-  lock_acquire(&fs_lock);
+  lock_acquire(&file_lock);
   ok = filesys_create(kname, initial_size);
-  lock_release(&fs_lock);
+  lock_release(&file_lock);
   return ok;
+}
+
+static void sys_close(int fd) {
+  if (fd == 0 || fd == 1) return;           // stdin/stdout: no struct file*
+  struct file *f = fd_detach(fd);
+  if (!f) return;                            // invalid or already closed → no-op
+  lock_acquire(&file_lock);
+  file_close(f);
+  lock_release(&file_lock);
 }
 
 ////////////////////////// HELPERS ////////////////////
@@ -166,7 +190,7 @@ static inline void uaddr_check(const void *u) {
 // You will still validate/copy the pointed-to buffer/string at use time.
 static void* uarg_ptr(struct intr_frame *f, int i) {
   uint32_t raw = uarg(f, i);
-  if (raw >= (uint32_t)PHYS_BASE) sys_exit(-1);
+  if (raw == 0 || raw >= (uint32_t)PHYS_BASE) sys_exit(-1);
   return (void*) raw;
 }
 
@@ -189,24 +213,19 @@ static bool valid_urange(const void *uaddr, size_t size) {
   return size == 0 || valid_uaddr((const uint8_t*)uaddr + size - 1);
 }
 
-  /* Have a lock here to not corrupt any file from*/
-  lock_acquire(&file_lock);
-  bool success = filesys_create(file, initial_size);
-  lock_release(&file_lock);
+static bool sys_remove(const char *u_file) {
+  if (u_file == NULL) sys_exit(-1);
+  char kname[256];
+  ssize_t len = copy_in_cstr(kname, u_file, sizeof kname);
+  if (len < 0) sys_exit(-1);
+  if (kname[0] == '\0') return false;
 
-  return success;
+  lock_acquire(&file_lock);
+  bool ok = filesys_remove(kname);
+  lock_release(&file_lock);
+  return ok;
 }
 
-static bool sys_remove(const char *file){
-  if (*file == NULL){
-    sys_exit(-1);
-  }
-
-  lock_acquire (&file_lock);
-  bool success = filesys_remove(file);
-  lock_release (&file_lock);
-
-  return success;
 // Copy user -> kernel; returns false on first bad byte/page.
 static bool copy_in(void *kdst, const void *usrc, size_t n) {
   if (!valid_urange(usrc, n)) return false;
@@ -235,4 +254,25 @@ static uint32_t uarg(struct intr_frame *f, int i) {
   uaddr_check(p);
   uaddr_check((const uint8_t*)p + 3);
   return *(const uint32_t*) p;
+}
+
+
+static struct file *fd_detach(int fd){
+  struct thread *t = thread_current();
+  if (fd < 2 || fd >= FD_MAX) return NULL;
+  struct file *f = t->file_descriptors[fd];
+  t->file_descriptors[fd] = NULL;
+  return f;
+}
+
+static void fd_close_all(void) {
+  struct thread *t = thread_current();
+  lock_acquire(&file_lock);
+  for (int i = 2; i < FD_MAX; i++) {
+    if (t->file_descriptors[i]) {
+      file_close(t->file_descriptors[i]);
+      t->file_descriptors[i] = NULL;
+    }
+  }
+  lock_release(&file_lock);
 }
