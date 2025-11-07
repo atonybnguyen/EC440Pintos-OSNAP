@@ -1,8 +1,0 @@
-{
-    "files.associations": {
-        "pagedir.h": "c",
-        "interrupt.h": "c",
-        "vaddr.h": "c",
-        "thread.h": "c"
-    }
-}
