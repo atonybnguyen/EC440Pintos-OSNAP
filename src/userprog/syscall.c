@@ -15,11 +15,18 @@
 
 static void syscall_handler (struct intr_frame *);
 
+/* Added a lock for synchronization */
+/* The read and write situation probably */
+static struct lock file_lock;
+
+
 /* Helper functions Added for Lab2 */
 static void sys_exit(int status);
 static void sys_halt();
 static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
+static bool sys_create(const char *file, unsigned initial_size);
+static bool sys_remove(const char *file);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -75,8 +82,9 @@ syscall_handler(struct intr_frame *f) {
       // Inside sys_create: copy user C-string to a kernel buffer with a cap
       f->eax = (uint32_t) sys_create(uname, initial);
       break;
-    }
-
+    case SYS_REMOVE:
+      f-> eax = sys_remove((char *) *(esp + 1));
+      break;
     default:
       sys_exit(-1);
   }
@@ -181,6 +189,24 @@ static bool valid_urange(const void *uaddr, size_t size) {
   return size == 0 || valid_uaddr((const uint8_t*)uaddr + size - 1);
 }
 
+  /* Have a lock here to not corrupt any file from*/
+  lock_acquire(&file_lock);
+  bool success = filesys_create(file, initial_size);
+  lock_release(&file_lock);
+
+  return success;
+}
+
+static bool sys_remove(const char *file){
+  if (*file == NULL){
+    sys_exit(-1);
+  }
+
+  lock_acquire (&file_lock);
+  bool success = filesys_remove(file);
+  lock_release (&file_lock);
+
+  return success;
 // Copy user -> kernel; returns false on first bad byte/page.
 static bool copy_in(void *kdst, const void *usrc, size_t n) {
   if (!valid_urange(usrc, n)) return false;
