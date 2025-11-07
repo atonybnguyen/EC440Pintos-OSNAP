@@ -34,6 +34,7 @@ static void sys_close(int fd);
 static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static int sys_filesize(int fd);
+static void sys_seek(int fd, unsigned position);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -46,6 +47,7 @@ static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
 //Helpers
 static struct file *fd_detach(int fd); /* Helper to detach a single from from file_descriptors */
 static void fd_close_all(void); /*Close all fds during sys exit*/
+static struct file *fd_get(int fd); /* Used to get the file, given fd */
 
 void
 syscall_init (void) 
@@ -126,6 +128,12 @@ syscall_handler(struct intr_frame *f) {
       int fd = (int) uarg(f, 1);
       f-> eax = (uint32_t) sys_filesize(fd);
       break;
+    }
+
+    case SYS_SEEK: {
+      int fd = (int) uarg(f, 1);
+      unsigned position = (unsigned) uarg(f, 2);
+      sys_seek(fd, position);
     }
     
     default:
@@ -273,6 +281,19 @@ static int sys_filesize(int fd){
   return size;
 }
 
+static void sys_seek(int fd, unsigned position){
+  if(fd <= 1) return;      //Ignore stdin and stdout again
+
+  struct file *file = fd_get(fd);
+  if (file == NULL) return;   //Failed to get the file
+
+  lock_acquire(&file_lock);
+  file_seek(fd, position);
+  lock_release(&file_lock);
+
+}
+
+
 ////////////////////////// HELPERS ////////////////////
 
 // Returns true iff ptr is a mapped user address.
@@ -373,4 +394,11 @@ static void fd_close_all(void) {
     }
   }
   lock_release(&file_lock);
+}
+
+static struct file *fd_get(int fd){
+  if (fd <= 2) return NULL; //Ignore stdin and out
+
+  struct thread *current_thread = thread_current();
+  return current_thread->file_descriptors[fd];
 }
