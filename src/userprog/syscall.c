@@ -274,9 +274,9 @@ static int sys_filesize(int fd){
   struct file *file = fd_get(fd);
   if (file == NULL) return -1;    //Failure to get it
 
-  lock_acquire(file_lock);
+  lock_acquire(&file_lock);
   int size = file_length(file);
-  lock_release(file_lock);
+  lock_release(&file_lock);
 
   return size;
 }
