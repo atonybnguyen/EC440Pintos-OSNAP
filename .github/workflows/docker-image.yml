@@ -48,5 +48,9 @@ jobs:
               source setup.sh && \
               cd src/threads && \
               make clean && \
+              make &&\
+              echo '--- Building and testing userprog ---' && \
+              cd ../userprog && \
+              make clean && \
               make \
             "
