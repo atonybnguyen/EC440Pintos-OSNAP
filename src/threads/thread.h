@@ -29,6 +29,9 @@ typedef int pid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+/*File descriptor table maximum values*/
+#define FD_MAX 128
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -120,7 +123,7 @@ struct thread
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /* FOR LAB 2 */
-    struct file *file_descriptors[128];
+    struct file *file_descriptors[FD_MAX];
     struct thread *parent;
     struct list children;
     int exit_status;
