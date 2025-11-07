@@ -107,17 +107,20 @@ syscall_handler(struct intr_frame *f) {
       const char *cmd_line = uarg_cstr(f, 1);
       f->eax = (uint32_t) sys_exec(cmd_line);
       break;
-
-    case SYS_OPEN:
+    }
+    
+    case SYS_OPEN: {
       const char *uname = uarg_cstr(f, 1);
       f->eax = (uint32_t)sys_open(uname);
       break;
+    }
       
-    case SYS_WAIT:
+    case SYS_WAIT: {
       pid_t pid = (pid_t) uarg(f, 1);
       f->eax = (uint32_t) sys_wait(pid);
       break;
-
+    }
+    
     default:
       sys_exit(-1);
       break;
