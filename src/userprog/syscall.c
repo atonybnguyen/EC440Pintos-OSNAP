@@ -25,10 +25,11 @@ typedef int ssize_t;
 
 /* Helper functions Added for Lab2 */
 static void sys_exit(int status);
-static void sys_halt();
+static void sys_halt(void);
 static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
 static bool sys_remove(const char *file);
+static int sys_open(const char *u_file);
 static void sys_close(int fd);
 static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
@@ -107,17 +108,22 @@ syscall_handler(struct intr_frame *f) {
       f->eax = (uint32_t) sys_exec(cmd_line);
       break;
     }
-
+    
+    case SYS_OPEN: {
+      const char *uname = uarg_cstr(f, 1);
+      f->eax = (uint32_t)sys_open(uname);
+      break;
+    }
+      
     case SYS_WAIT: {
       pid_t pid = (pid_t) uarg(f, 1);
       f->eax = (uint32_t) sys_wait(pid);
       break;
     }
-
-    default: {
+    
+    default:
       sys_exit(-1);
-      break; 
-    }
+      break;
   }
 }
 
@@ -145,7 +151,7 @@ static void sys_exit(int status){
   thread_exit();  // never returns
 }
 
-static void sys_halt(){
+static void sys_halt(void){
   shutdown_power_off();
 }
 
@@ -198,6 +204,46 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
   return ok;
 }
 
+
+  static int sys_open(const char *u_file) {
+    if (u_file == NULL){ 
+      sys_exit(-1);
+    }
+      
+    /* Copy user string into kernel buffer */
+    char kname[256];
+    int buffersize = sizeof(kname);
+    int len = strlen(u_file);
+    if (len >= buffersize){
+      sys_exit(-1);      //Accessing out of bound
+    }
+    if (len < 0) sys_exit(-1);                    // Length should never be less than 0
+    if (kname[0] == '\0') return -1;              // Name should never be null as well
+    strlcpy(kname, u_file, buffersize-1);         //Scary function, need protection from buffer overflow stuff
+    kname[buffersize-1] = "\0";                   //Adding null byte to end a string
+    
+    /* Open the file */
+    lock_acquire(&file_lock);
+    struct file *f = filesys_open(kname);
+    lock_release(&file_lock);
+    if (f == NULL) return -1;                  
+  
+    /* Find an available file descriptor slot */
+    struct thread *t = thread_current();
+    int fd;
+    for (fd = 2; fd < FD_MAX; fd++) {        //Reserving fd 0 and 1 for stdin/out
+      if (t->file_descriptors[fd] == NULL) {
+        t->file_descriptors[fd] = f;
+        return fd;                                 /* success */
+      }
+    }
+    /* In the case the there is no file descriptor left, close */
+    lock_acquire(&file_lock);
+    file_close(f);
+    lock_release(&file_lock);
+    return -1;
+  }
+  
 static void sys_close(int fd) {
   if (fd == 0 || fd == 1) return;           // stdin/stdout: no struct file*
   struct file *f = fd_detach(fd);
