@@ -350,11 +350,11 @@ static void sys_seek(int fd, unsigned position){
 static int sys_tell(int fd){
   if (fd <= 1) return 0;
 
-  struct file *file = fd_get(fd)
+  struct file *file = fd_get(fd);
   if (file == NULL) return 0;
 
   lock_acquire(&file_lock);
-  unsigned positon = file_tell(file);
+  int position = file_tell(file);
   lock_release(&file_lock);
 
   return position;
