@@ -33,6 +33,7 @@ static int sys_open(const char *u_file);
 static void sys_close(int fd);
 static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
+static int sys_filesize(int fd);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -118,6 +119,12 @@ syscall_handler(struct intr_frame *f) {
     case SYS_WAIT: {
       pid_t pid = (pid_t) uarg(f, 1);
       f->eax = (uint32_t) sys_wait(pid);
+      break;
+    }
+
+    case SYS_FILESIZE: {
+      int fd = (int) uarg(f, 1);
+      f-> eax = (uint32_t) sys_filesize(fd);
       break;
     }
     
@@ -251,6 +258,19 @@ static void sys_close(int fd) {
   lock_acquire(&file_lock);
   file_close(f);
   lock_release(&file_lock);
+}
+
+static int sys_filesize(int fd){
+  if (fd <= 1) return -1;   //Again, fd 0 and 1 reserved for stdin stdout
+
+  struct file *file = fd_get(fd);
+  if (file == NULL) return -1;    //Failure to get it
+
+  lock_acquire(file_lock);
+  int size = file_length(file);
+  lock_release(file_lock);
+
+  return size;
 }
 
 ////////////////////////// HELPERS ////////////////////
