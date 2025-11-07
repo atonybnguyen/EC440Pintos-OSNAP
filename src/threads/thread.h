@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/fixed.h"
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -27,6 +28,9 @@ typedef int pid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+/*File descriptor table maximum values*/
+#define FD_MAX 128
 
 /* A kernel thread or user process.
 
@@ -95,6 +99,9 @@ typedef int pid_t;
       bool waited;                    /* Already waited */
       bool exited;                    /* Has exited */
       struct list_elem elem;          /* List element */
+
+      struct semaphore wait_sema;   /* Semaphore for wait */
+      struct semaphore load_sema;   /* Semaphore for load */
       };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -116,11 +123,12 @@ struct thread
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /* FOR LAB 2 */
-    struct file *file_descriptors[128];
+    struct file *file_descriptors[FD_MAX];
     struct thread *parent;
     struct list children;
     int exit_status;
     struct file *executable;
+    struct child_process *my_record;
 ////////////////////////////////////////////////////////////////////////////////////
 
 

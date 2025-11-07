@@ -51,7 +51,23 @@ static void parse_args (char *cmd_line, char **argv, int *argc)
 
 */
 
+/* helper struct to pass args*/
+struct exec_data{
+  char *fn_copy;
+  struct child_status *child;
+};
 
+/* child status struct to track */
+struct child_status {
+  pid_t pid;
+  bool load_status;
+  struct semaphore load_sema;
+
+  int exit_status;
+  bool has_exited;
+  struct semaphore wait_sema;
+  struct list_elem elem;
+};
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -63,47 +79,117 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  /* malloc failure */
+  char *prog_name = malloc(strlen (file_name) + 1);
+  if (prog_name == NULL) {
+      return TID_ERROR;
+  }
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  if (fn_copy == NULL){
+    free(prog_name);
     return TID_ERROR;
+  }
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  /* makes a copy of the file_name string because tokenization (strtok) modifies the original string*/
+  char *save_ptr;
+  strlcpy (prog_name, file_name, strlen (file_name) + 1);
+  prog_name = strtok_r(prog_name, " ", &save_ptr);
 
-  char *esp;
-  char *prog_name = malloc(strlen (filename) + 1);
-  strlcpy (prog_name, file_name, strlen (filename) + 1);
-  prog_name = strtok_r(prog_name, " ". &esp);
+  /* we need to allocate the child_status struct */
+  struct child_status *child = malloc(sizeof(struct child_status));
+  if (child == NULL) {
+      free(prog_name);
+      palloc_free_page(fn_copy);
+      return TID_ERROR;
+  }
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+  /* initializing child status' for loading */
+  child->load_status = false;
+  sema_init(&child->load_sema, 0);
+
+  /* use helper struct to encompass arguments */
+  struct exec_data data;
+  data.fn_copy = fn_copy;
+  data.child = child;
+
+  /* this thread will execute the program*/
+  tid = thread_create (prog_name, PRI_DEFAULT, start_process, &data);
+
+  /* if tid creation fails it frees the program and child processes */
+  if (tid == TID_ERROR){
+    free(prog_name);
+    palloc_free_page (fn_copy);
+    free(child);
+  }
+  else{
+    /* wait for the child to signal load */
+    sema_down(&child->load_sema);
+
+    /* attempts to load child and adds the child process to parent's list of children */
+    if (child->load_status == true){
+      list_push_back (&thread_current()->children, &child->elem);
+    }
+    else {
+      free(child);
+      tid = TID_ERROR;
+    }
+
+    /* frees the program */
+    free(prog_name);
+  }
   return tid;
 }
+
+
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *data_)
 {
-  char *file_name = file_name_;
+  /* unpack the data struct passed from process_execute */
+  struct exec_data *data = (struct exec_data *) data_;
+  char *file_name = data->fn_copy;
+  struct child_status *child = data->child;
+
   struct intr_frame if_;
   bool success;
+
+  /* parses the command line */
+  char *argv[128]; // Or some reasonable max
+  int argc;
+  parse_args(file_name, argv, &argc);
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+
+  /* loads the program*/
+  success = load (argv[0], &if_.eip, &if_.esp);
+
+  /* child knows its own record */
+  if (success){
+    thread_current()->my_record = child;
+  }
+
+  /* signals the parent process whether load succeeded or not */
+  child->load_status = success;
+  sema_up(&child->load_sema);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
+  
+  if (!success){
+    palloc_free_page (file_name);
     thread_exit ();
+  }
 
+  palloc_free_page (file_name);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
