@@ -3,7 +3,6 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include <sys/types.h>
 /* Additional Libraries */
 #include <string.h>
 #include "userprog/process.h"
