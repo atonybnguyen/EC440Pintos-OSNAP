@@ -270,8 +270,23 @@ start_process (void *data_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  struct thread *cur = thread_current();  
+  struct child_process *child = NULL;
+
+  struct list_elem *e;
+  
   /* retrieves the child in the current process' list */
-  struct child_process *child = get_child(child_tid);
+  for (e = list_begin (&cur->children); e != list_end (&cur->children); e = list_next (e))
+  {
+    struct child_process *c = list_entry (e, struct child_process, elem);
+    if (c->pid == child_tid)
+    {
+      child = c;
+      list_remove(&child->elem); // <-- "Claim" the child
+      break;
+    }
+  }
+  
   if (child == NULL) {
     return -1;
   }
@@ -281,7 +296,6 @@ process_wait (tid_t child_tid UNUSED)
   int exit_status = child->exit_status;
 
   /* removes the child from the list and frees its memory */
-  list_remove(&child->elem);
   free(child);
 
   return exit_status;
@@ -293,7 +307,6 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
   /*
    * Disown all children so they can free theit child_process
    * struct when they exit, preventing a memory leak.
@@ -309,7 +322,7 @@ process_exit (void)
 
       /* Remove from parent's list */
       list_remove(&child->elem); 
-      
+
       /* If child already exited, free it */
       if (child->exited) 
       {
