@@ -57,17 +57,23 @@ struct exec_data{
   struct child_status *child;
 };
 
-/* child status struct to track */
-struct child_status {
-  pid_t pid;
-  bool load_status;
-  struct semaphore load_sema;
+/* helper that finds a child in the current thread's children list*/
+static struct child_status *get_child(tid_t tid){
+  struct thread *cur = thread_current();
+  struct list_elem *e;
 
-  int exit_status;
-  bool has_exited;
-  struct semaphore wait_sema;
-  struct list_elem elem;
-};
+  for (e = list_begin (&cur->children); e != list_end (&cur->children);
+       e = list_next (e))
+    {
+      struct child_status *child = list_entry (e, struct child_status, elem);
+      if (child->pid == tid)
+      {
+        return child;
+      }
+    }
+  return NULL;
+}
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -189,6 +195,53 @@ start_process (void *data_)
     thread_exit ();
   }
 
+  /* --- STACK PUSHING LOGIC --- */
+  
+  /*  creates an array to hold the *user virtual addresses* of the arguments */
+  void *user_argv_ptrs[argc];
+  int i;
+
+  /* push the argument strings onto the stack (right-to-left) */
+  for (i = argc - 1; i >= 0; i--) {
+      int len = strlen(argv[i]) + 1; // +1 for NUL terminator
+      if_.esp -= len;               // Decrement stack pointer
+      memcpy(if_.esp, argv[i], len);  // Copy string to user stack
+      user_argv_ptrs[i] = if_.esp;  // Save the user-space pointer
+  }
+
+  // 3. Word-align the stack (push 0-3 bytes of padding)
+  uintptr_t esp_val = (uintptr_t) if_.esp;
+  int padding = esp_val % 4;
+  if (padding != 0) {
+      if_.esp -= padding;
+      memset(if_.esp, 0, padding);
+  }
+
+  // 4. Push the null pointer sentinel (argv[argc])
+  if_.esp -= sizeof(void *);
+  *((void **) if_.esp) = NULL;
+
+  // 5. Push the pointers to the argument strings (argv[argc-1]...argv[0])
+  for (i = argc - 1; i >= 0; i--) {
+      if_.esp -= sizeof(void *);
+      *((void **) if_.esp) = user_argv_ptrs[i];
+  }
+
+  // 6. Push argv (a pointer to the start of the pointer array)
+  void *user_argv = if_.esp;
+  if_.esp -= sizeof(void *);
+  *((void **) if_.esp) = user_argv;
+
+  // 7. Push argc
+  if_.esp -= sizeof(int);
+  *((int *) if_.esp) = argc;
+
+  // 8. Push a fake return address (0)
+  if_.esp -= sizeof(void *);
+  *((void **) if_.esp) = 0;
+
+  /* --- END STACK PUSHING LOGIC --- */
+
   palloc_free_page (file_name);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -212,9 +265,21 @@ start_process (void *data_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(1){
-  ;
+  /* retrieves the child in the current process' list */
+  struct child_status *child = get_child(child_tid);
+  if (child == NULL) {
+    return -1;
   }
+
+  /* waits for the child to exit */
+  sema_down(&child->wait_sema);
+  int exit_status = child->exit_status;
+
+  /* removes the child from the list and frees its memory */
+  list_remove(&child->elem);
+  free(child);
+
+  return exit_status;
 }
 
 /* Free the current process's resources. */
@@ -563,7 +628,7 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE - 12;
+        *esp = PHYS_BASE -12;
       else
         palloc_free_page (kpage);
     }
