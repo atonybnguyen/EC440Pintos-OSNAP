@@ -135,7 +135,7 @@ syscall_handler(struct intr_frame *f) {
     case SYS_SEEK: {
       int fd = (int) uarg(f, 1);
       unsigned position = (unsigned) uarg(f, 2);
-      f->eax = sys_seek(fd, position);
+      sys_seek(fd, position);
     }
 
     case SYS_READ: {
