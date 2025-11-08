@@ -13,6 +13,7 @@
 #include "filesys/file.h"           /* file_allow_write, file_close */
 #include "threads/synch.h"        /* lock_init, lock_acquire, lock_release */
 #include "devices/input.h"
+#include "filesys/directory.h"
 
 
 
@@ -36,7 +37,6 @@ static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static int sys_filesize(int fd);
 static void sys_seek(int fd, unsigned position);
-static int sys_read (int fd, void *buffer, unsigned size);
 static int sys_read (int fd, void *buffer, unsigned size);
 static unsigned sys_tell(int fd);
 
@@ -166,6 +166,7 @@ syscall_handler(struct intr_frame *f) {
 static int sys_read (int fd, void *ubuf, unsigned size) {
   if (size == 0) return 0;
   if (fd == 1) return -1;                 // stdout is not readable
+  if (!valid_urange(ubuf, size)) sys_exit(-1);
 
   // STDIN: read from keyboard
   if (fd == 0) {
@@ -204,7 +205,6 @@ static int sys_read (int fd, void *ubuf, unsigned size) {
 
 static void sys_exit(int status){
   struct thread *cur_thread = thread_current();
-  cur_thread->exit_status = status;
 
   printf ("%s: exit(%d)\n", cur_thread -> name, status);
 
@@ -222,6 +222,21 @@ static void sys_exit(int status){
   }
 
   // TODO (later): notify parent/waiters via child-info struct & sema_up()
+  if (cur_thread->my_record) 
+  {
+    struct child_process *child_rec = cur_thread->my_record;
+    child_rec->exit_status = status;
+    child_rec->exited = true;
+
+    /* Wake up the parent (if it's waiting) */
+    sema_up (&child_rec->wait_sema);
+
+    /* if the parent is gone free my the child's record */
+    if (child_rec->parent_thread == NULL) {
+      free (child_rec);
+    }
+    cur_thread->my_record = NULL;
+  }
 
   thread_exit();  // never returns
 }
@@ -231,12 +246,16 @@ static void sys_halt(void){
 }
 
 pid_t sys_exec (const char *cmd_line) {
-  if (cmd_line == NULL) sys_exit(-1);
+  uaddr_check(cmd_line);
 
-  char kcmd_line[256];                     /* buffer */             
+  char kcmd_line[256]; // A buffer on the kernel stack
   ssize_t len = copy_in_cstr(kcmd_line, cmd_line, sizeof kcmd_line);
-  if (len < 0) sys_exit(-1);                       
-  if (kcmd_line[0] == '\0') return -1;                /* empty name */
+  if (len < 0) {
+      sys_exit(-1); // Bad pointer or string too long
+  }
+  if (len == 0) {
+      return -1; // Empty string
+  }
 
   pid_t pid = process_execute(kcmd_line);
   return pid;
@@ -247,30 +266,58 @@ static int sys_wait (pid_t pid){
 }
 
 static int sys_write(int fd, const void *ubuf, unsigned size) {
-  if (fd != 1) return -1;                 // stdout only for now
   if (size == 0) return 0;
+  if (!valid_urange(ubuf, size)) sys_exit(-1);
+  if (fd == 0) return -1;                 // stdin is not writable
+
+  if (fd == 1) {
+    const size_t CHUNK = 512;
+    size_t done = 0;
+    uint8_t kbuf[CHUNK];
+
+    while (done < size) {
+      size_t n = size - done; if (n > CHUNK) n = CHUNK;
+      if (!copy_in(kbuf, (const uint8_t*)ubuf + done, n)) sys_exit(-1);
+      putbuf((const char*)kbuf, n);
+      done += n;
+    }
+    return (int)done;
+  }
+  struct file *f = fd_get(fd);
+  if (f == NULL) return -1;
 
   const size_t CHUNK = 512;
-  size_t done = 0;
   uint8_t kbuf[CHUNK];
+  unsigned total = 0;
 
-  while (done < size) {
-    size_t n = size - done; if (n > CHUNK) n = CHUNK;
-    if (!copy_in(kbuf, (const uint8_t*)ubuf + done, n)) sys_exit(-1);
-    putbuf((const char*)kbuf, n);
-    done += n;
+  while(total < size){
+    size_t want = size - total;
+    if (want > CHUNK) want = CHUNK;
+
+    if (!copy_in(kbuf, (const uint8_t*)ubuf + total, want)) sys_exit(-1);
+    lock_acquire(&file_lock);
+    int n = file_write(f, kbuf, (int)want);
+    lock_release(&file_lock);
+
+    if (n < 0) return -1;        // FS error
+    if (n == 0) break;           // No more can be written
+    total += (unsigned)n;
   }
-  return (int)done;
+  return (int)total;
 }
 
 static bool sys_create(const char *u_file, unsigned initial_size) {
   if (u_file == NULL) sys_exit(-1);
 
   /* Copy user string into a kernel buffer with a reasonable cap */
-  char kname[256];                                   /* cap: 255 bytes + NUL */
+  char kname[NAME_MAX + 1];                                   
   ssize_t len = copy_in_cstr(kname, u_file, sizeof kname);
-  if (len < 0) sys_exit(-1);                         /* bad pointer or no NUL */
-  if (kname[0] == '\0') return false;                /* empty name not allowed */
+  if (len == -1) 
+      sys_exit(-1);      // Bad pointer, kill process
+  if (len == -2) 
+      return false;      // String too long, just fail the create
+  if (kname[0] == '\0') 
+      return false;
 
   bool ok;
   lock_acquire(&file_lock);
@@ -425,14 +472,15 @@ static bool copy_out(void *udst, const void *ksrc, size_t n) {
 // Returns length on success (excluding NUL), or -1 on failure.
 static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap) {
   // cap should be a reasonable limit (e.g., PGSIZE) to avoid scanning forever.
-  for (size_t i = 0; i < cap; i++) {
+  size_t i;
+  for (i = 0; i < cap; i++) {
     const char *up = ustr + i;
     if (!valid_uaddr(up)) return -1;
     char c = *(volatile const char *)up; // avoid clever compiler moves
     kbuf[i] = c;
     if (c == '\0') return (ssize_t)i;
   }
-  return -1; // not NUL-terminated within cap
+  return -2; // not NUL-terminated within cap
 }
 
 // Fetch a 32-bit arg from user stack at esp + 4*i

@@ -102,6 +102,9 @@ typedef int pid_t;
 
       struct semaphore wait_sema;   /* Semaphore for wait */
       struct semaphore load_sema;   /* Semaphore for load */
+
+      bool load_status;              /* Load success status */
+      struct thread *parent_thread; /* Pointer to the parent's thread */
       };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -126,9 +129,11 @@ struct thread
     struct file *file_descriptors[FD_MAX];
     struct thread *parent;
     struct list children;
-    int exit_status;
     struct file *executable;
+    struct lock children_lock;
     struct child_process *my_record;
+
+   
 ////////////////////////////////////////////////////////////////////////////////////
 
 
