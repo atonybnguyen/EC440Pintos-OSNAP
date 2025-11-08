@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"        /* filesys_create */
 #include "filesys/file.h"           /* file_allow_write, file_close */
 #include "threads/synch.h"        /* lock_init, lock_acquire, lock_release */
+#include "devices/input.h"
 
 
 
@@ -51,6 +52,7 @@ static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
 static struct file *fd_detach(int fd); /* Helper to detach a single from from file_descriptors */
 static void fd_close_all(void); /*Close all fds during sys exit*/
 static struct file *fd_get(int fd); /* Used to get the file, given fd */
+static bool copy_out(void *udst, const void *ksrc, size_t n);
 
 void
 syscall_init (void) 
@@ -137,6 +139,7 @@ syscall_handler(struct intr_frame *f) {
       int fd = (int) uarg(f, 1);
       unsigned position = (unsigned) uarg(f, 2);
       sys_seek(fd, position);
+      break; 
     }
 
     case SYS_READ: {
@@ -333,11 +336,8 @@ static int sys_filesize(int fd){
 }
 
 static void sys_seek(int fd, unsigned position){
-  if(fd <= 1) return;      //Ignore stdin and stdout again
-
   struct file *file = fd_get(fd);
-  if (file == NULL) return;   //Failed to get the file
-
+  if (!file) return;
   lock_acquire(&file_lock);
   file_seek(file, position);
   lock_release(&file_lock);
@@ -416,7 +416,7 @@ static bool copy_in(void *kdst, const void *usrc, size_t n) {
 
 // Copy kernel -> user; returns false on first bad byte/page.
 static bool copy_out(void *udst, const void *ksrc, size_t n) {
-  if (!valid_urange(udst, n)) return false;  // also ensures user-vaddr & mapped
+  if (!valid_urange(udst, n)) return false;
   memcpy(udst, ksrc, n);
   return true;
 }
