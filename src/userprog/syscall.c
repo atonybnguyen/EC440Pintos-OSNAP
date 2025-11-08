@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"        /* filesys_create */
 #include "filesys/file.h"           /* file_allow_write, file_close */
 #include "threads/synch.h"        /* lock_init, lock_acquire, lock_release */
+#include "devices/input.h"
 
 
 
@@ -35,7 +36,10 @@ static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static int sys_filesize(int fd);
 static void sys_seek(int fd, unsigned position);
+static int sys_read (int fd, void *buffer, unsigned size);
+static int sys_read (int fd, void *buffer, unsigned size);
 static unsigned sys_tell(int fd);
+
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -49,6 +53,7 @@ static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
 static struct file *fd_detach(int fd); /* Helper to detach a single from from file_descriptors */
 static void fd_close_all(void); /*Close all fds during sys exit*/
 static struct file *fd_get(int fd); /* Used to get the file, given fd */
+static bool copy_out(void *udst, const void *ksrc, size_t n);
 
 void
 syscall_init (void) 
@@ -135,8 +140,17 @@ syscall_handler(struct intr_frame *f) {
       int fd = (int) uarg(f, 1);
       unsigned position = (unsigned) uarg(f, 2);
       sys_seek(fd, position);
+      break; 
     }
 
+    case SYS_READ: {
+      int fd = (int) uarg(f, 1);                   // 1st arg: fd
+      void *ubuf = uarg_ptr(f, 2);                 // 2nd arg: user buffer ptr
+      unsigned size = (unsigned) uarg(f, 3);       // 3rd arg: size
+      f->eax = (uint32_t) sys_read(fd, ubuf, size);
+      break;
+    }
+    
     case SYS_TELL: {
       int fd = (int) uarg(f, 1);
       f->eax = sys_tell(fd);
@@ -149,6 +163,45 @@ syscall_handler(struct intr_frame *f) {
       break;
   }
 }
+
+static int sys_read (int fd, void *ubuf, unsigned size) {
+  if (size == 0) return 0;
+  if (fd == 1) return -1;                 // stdout is not readable
+
+  // STDIN: read from keyboard
+  if (fd == 0) {
+    unsigned i = 0;
+    for (; i < size; i++) {
+      uint8_t c = input_getc();
+      if (!copy_out((uint8_t*)ubuf + i, &c, 1)) sys_exit(-1);
+    }
+    return (int)i;
+  }
+
+  // Regular file
+  struct file *f = fd_get(fd);
+  if (f == NULL) return -1;
+
+  const size_t CHUNK = 512;
+  uint8_t kbuf[CHUNK];
+  unsigned total = 0;
+
+  while (total < size) {
+    size_t want = size - total;
+    if (want > CHUNK) want = CHUNK;
+
+    lock_acquire(&file_lock);
+    int n = file_read(f, kbuf, (int)want);
+    lock_release(&file_lock);
+
+    if (n < 0) return -1;        // FS error
+    if (n == 0) break;           // EOF
+    if (!copy_out((uint8_t*)ubuf + total, kbuf, (size_t)n)) sys_exit(-1);
+    total += (unsigned)n;
+  }
+  return (int)total;
+}
+
 
 static void sys_exit(int status){
   struct thread *cur_thread = thread_current();
@@ -284,11 +337,8 @@ static int sys_filesize(int fd){
 }
 
 static void sys_seek(int fd, unsigned position){
-  if(fd <= 1) return;      //Ignore stdin and stdout again
-
   struct file *file = fd_get(fd);
-  if (file == NULL) return;   //Failed to get the file
-
+  if (!file) return;
   lock_acquire(&file_lock);
   file_seek(file, position);
   lock_release(&file_lock);
@@ -319,7 +369,7 @@ static inline void uaddr_check(const void *u) {
 }
 
 // For pointer args, just return the user pointer after validating the *pointer value* itself.
-// You will still validate/copy the pointed-to buffer/string at use time.
+// You will still validate/copy the pointed-to buffer/string at use time
 static void* uarg_ptr(struct intr_frame *f, int i) {
   uint32_t raw = uarg(f, i);
   if (raw == 0 || raw >= (uint32_t)PHYS_BASE) sys_exit(-1);
@@ -362,6 +412,13 @@ static bool sys_remove(const char *u_file) {
 static bool copy_in(void *kdst, const void *usrc, size_t n) {
   if (!valid_urange(usrc, n)) return false;
   memcpy(kdst, usrc, n);
+  return true;
+}
+
+// Copy kernel -> user; returns false on first bad byte/page.
+static bool copy_out(void *udst, const void *ksrc, size_t n) {
+  if (!valid_urange(udst, n)) return false;
+  memcpy(udst, ksrc, n);
   return true;
 }
 
