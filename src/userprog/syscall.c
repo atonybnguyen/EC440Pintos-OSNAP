@@ -36,6 +36,7 @@ static int sys_wait(pid_t pid);
 static int sys_filesize(int fd);
 static void sys_seek(int fd, unsigned position);
 static int sys_read (int fd, void *buffer, unsigned size);
+static int sys_read (int fd, void *buffer, unsigned size);
 static unsigned sys_tell(int fd);
 
 static void uaddr_check(const void *u);
