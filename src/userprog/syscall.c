@@ -368,7 +368,7 @@ static inline void uaddr_check(const void *u) {
 }
 
 // For pointer args, just return the user pointer after validating the *pointer value* itself.
-// You will still validate/copy the pointed-to buffer/string at use time.
+// You will still validate/copy the pointed-to buffer/string at use time
 static void* uarg_ptr(struct intr_frame *f, int i) {
   uint32_t raw = uarg(f, i);
   if (raw == 0 || raw >= (uint32_t)PHYS_BASE) sys_exit(-1);
