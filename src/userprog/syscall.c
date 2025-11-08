@@ -40,7 +40,6 @@ static int sys_read (int fd, void *buffer, unsigned size);
 static int sys_read (int fd, void *buffer, unsigned size);
 static unsigned sys_tell(int fd);
 
-
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
 static void *uarg_ptr(struct intr_frame *f, int i);
