@@ -26,7 +26,7 @@ typedef int ssize_t;
 
 
 /* Helper functions Added for Lab2 */
-static void sys_exit(int status);
+void sys_exit(int status);
 static void sys_halt(void);
 static int sys_write(int fd, const void *buffer, unsigned int size);
 static bool sys_create(const char *file, unsigned initial_size);
@@ -203,7 +203,7 @@ static int sys_read (int fd, void *ubuf, unsigned size) {
 }
 
 
-static void sys_exit(int status){
+void sys_exit(int status){
   struct thread *cur_thread = thread_current();
 
   printf ("%s: exit(%d)\n", cur_thread -> name, status);

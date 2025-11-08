@@ -5,6 +5,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -149,32 +150,12 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  if (user) {
-   f->eip = (void (*) (void)) f->eax;
-   f->eax = 0xffffffff; // Indicate error
-
-   printf("%s: exit(-1)\n", thread_current()->name);
-
-   if (thread_current()->my_record){
-      thread_current()->my_record->exit_status = -1;
-      thread_current()->my_record->exited = true;
-      sema_up(&thread_current()->my_record->wait_sema);
-   }
-
-   thread_exit();
-   NOT_REACHED ();
+  if (user || !is_kernel_vaddr(fault_addr))
+  {
+     /*  sys_exit() ensures all resources are properly freed*/
+     sys_exit(-1);
+     NOT_REACHED();
   }
-  else{
-   if (!is_kernel_vaddr(fault_addr)){
-      printf ("%s: exit(-1)\n", thread_current()->name);
-      if (thread_current()->my_record){
-         thread_current()->my_record->exit_status = -1;
-         thread_current()->my_record->exited = true;
-         sema_up(&thread_current()->my_record->wait_sema);
-      }
-      thread_exit();
-      NOT_REACHED ();   
-   }
    /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
@@ -184,6 +165,5 @@ page_fault (struct intr_frame *f)
           write ? "writing" : "reading",
           user ? "user" : "kernel");
   kill (f);
-  }
 }
 
