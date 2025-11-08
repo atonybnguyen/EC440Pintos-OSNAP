@@ -35,6 +35,7 @@ static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static int sys_filesize(int fd);
 static void sys_seek(int fd, unsigned position);
+static unsigned sys_tell(int fd);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -135,7 +136,14 @@ syscall_handler(struct intr_frame *f) {
       unsigned position = (unsigned) uarg(f, 2);
       sys_seek(fd, position);
     }
-    
+
+    case SYS_TELL: {
+      int fd = (int) uarg(f, 1);
+      f->eax = sys_tell(fd);
+       break;
+    }
+
+    //Default
     default:
       sys_exit(-1);
       break;
@@ -227,15 +235,9 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
       
     /* Copy user string into kernel buffer */
     char kname[256];
-    int buffersize = sizeof(kname);
-    int len = strlen(u_file);
-    if (len >= buffersize){
-      sys_exit(-1);      //Accessing out of bound
-    }
-    if (len < 0) sys_exit(-1);                    // Length should never be less than 0
-    if (kname[0] == '\0') return -1;              // Name should never be null as well
-    strlcpy(kname, u_file, buffersize-1);         //Scary function, need protection from buffer overflow stuff
-    kname[buffersize-1] = "\0";                   //Adding null byte to end a string
+    ssize_t len = copy_in_cstr(kname, u_file, sizeof(kname));
+    if (len < 0) sys_exit(-1);
+    if (kname[0] == '\0') return -1;
     
     /* Open the file */
     lock_acquire(&file_lock);
@@ -288,11 +290,22 @@ static void sys_seek(int fd, unsigned position){
   if (file == NULL) return;   //Failed to get the file
 
   lock_acquire(&file_lock);
-  file_seek(fd, position);
+  file_seek(file, position);
   lock_release(&file_lock);
-
 }
 
+static unsigned sys_tell(int fd){
+  if (fd <= 1) return 0;
+
+  struct file *file = fd_get(fd);
+  if (file == NULL) return 0;
+
+  lock_acquire(&file_lock);
+  unsigned position = file_tell(file);
+  lock_release(&file_lock);
+
+  return position;
+}
 
 ////////////////////////// HELPERS ////////////////////
 
@@ -397,7 +410,7 @@ static void fd_close_all(void) {
 }
 
 static struct file *fd_get(int fd){
-  if (fd <= 2) return NULL; //Ignore stdin and out
+  if ((fd < 2) || (fd >= FD_MAX)) return NULL; //Ignore stdin and out
 
   struct thread *current_thread = thread_current();
   return current_thread->file_descriptors[fd];
