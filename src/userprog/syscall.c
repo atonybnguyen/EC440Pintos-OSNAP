@@ -151,7 +151,8 @@ syscall_handler(struct intr_frame *f) {
       f->eax = sys_tell(fd);
        break;
     }
-    
+
+    //Default
     default:
       sys_exit(-1);
       break;
