@@ -130,7 +130,6 @@ struct thread
     struct thread *parent;
     struct list children;
     struct file *executable;
-    struct lock children_lock;
     struct child_process *my_record;
 
    

@@ -335,7 +335,8 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
     /* Copy user string into kernel buffer */
     char kname[256];
     ssize_t len = copy_in_cstr(kname, u_file, sizeof(kname));
-    if (len < 0) sys_exit(-1);
+    if (len == -1) sys_exit(-1);      // Bad pointer, kill process
+    if (len == -2) return -1;         // String too long, just
     if (kname[0] == '\0') return -1;
     
     /* Open the file */
@@ -407,7 +408,7 @@ static unsigned sys_tell(int fd){
 
 // Returns true iff ptr is a mapped user address.
 static bool valid_uaddr(const void *uaddr) {
-  return uaddr != NULL && is_user_vaddr(uaddr) && pagedir_get_page(thread_current()->pagedir, uaddr) != NULL;
+  return uaddr != NULL && is_user_vaddr(uaddr);
 }
 
 static inline void uaddr_check(const void *u) {
@@ -417,9 +418,13 @@ static inline void uaddr_check(const void *u) {
 // For pointer args, just return the user pointer after validating the *pointer value* itself.
 // You will still validate/copy the pointed-to buffer/string at use time
 static void* uarg_ptr(struct intr_frame *f, int i) {
+  
   uint32_t raw = uarg(f, i);
-  if (raw == 0 || raw >= (uint32_t)PHYS_BASE) sys_exit(-1);
+  if (raw == 0 && !is_user_vaddr((void*)raw)) sys_exit(-1);
+
+  //if (raw == 0 || raw >= (uint32_t)PHYS_BASE) sys_exit(-1);
   return (void*) raw;
+  
 }
 
 static const char* uarg_cstr(struct intr_frame *f, int i) {
@@ -428,6 +433,16 @@ static const char* uarg_cstr(struct intr_frame *f, int i) {
 
 // Validate an entire [uaddr, uaddr + size) range, page by page.
 static bool valid_urange(const void *uaddr, size_t size) {
+  if (uaddr == NULL) return false;
+  if (!is_user_vaddr(uaddr)) return false;
+
+  if ((uintptr_t)uaddr + size < (uintptr_t)uaddr) return false; // overflow
+
+  if ((size > 0) && !is_user_vaddr((const uint8_t*)uaddr + size - 1)) 
+      return false;
+
+  return true;
+  /*
   const uint8_t *ptr = (const uint8_t *)uaddr;
   const uint8_t *end = ptr + size;
   while (ptr < end) {
@@ -439,13 +454,16 @@ static bool valid_urange(const void *uaddr, size_t size) {
     ptr += advance;
   }
   return size == 0 || valid_uaddr((const uint8_t*)uaddr + size - 1);
+  */
 }
 
 static bool sys_remove(const char *u_file) {
   if (u_file == NULL) sys_exit(-1);
+
   char kname[256];
   ssize_t len = copy_in_cstr(kname, u_file, sizeof kname);
-  if (len < 0) sys_exit(-1);
+  if (len == -1) sys_exit(-1);      // Bad pointer, kill process
+  if (len == -2) return false;      // String too long, just fail the remove
   if (kname[0] == '\0') return false;
 
   lock_acquire(&file_lock);
@@ -471,11 +489,13 @@ static bool copy_out(void *udst, const void *ksrc, size_t n) {
 // Copy a NUL-terminated string from user into a kernel buffer with a cap.
 // Returns length on success (excluding NUL), or -1 on failure.
 static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap) {
+  if (!valid_uaddr(ustr)) return -1;
+
   // cap should be a reasonable limit (e.g., PGSIZE) to avoid scanning forever.
-  size_t i;
-  for (i = 0; i < cap; i++) {
+  for (size_t i = 0; i < cap; i++) {
     const char *up = ustr + i;
     if (!valid_uaddr(up)) return -1;
+
     char c = *(volatile const char *)up; // avoid clever compiler moves
     kbuf[i] = c;
     if (c == '\0') return (ssize_t)i;
@@ -487,8 +507,12 @@ static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap) {
 static uint32_t uarg(struct intr_frame *f, int i) {
   const void *p = (const uint8_t*) f->esp + 4*i;
   // Validate the 4-byte range (start and end)
+  /*
   uaddr_check(p);
   uaddr_check((const uint8_t*)p + 3);
+  */
+  if (p == NULL || !is_user_vaddr(p)) sys_exit(-1);
+  if (!is_user_vaddr((const uint8_t*)p + 3)) sys_exit(-1);
   return *(const uint32_t*) p;
 }
 
