@@ -135,7 +135,7 @@ syscall_handler(struct intr_frame *f) {
     case SYS_SEEK: {
       int fd = (int) uarg(f, 1);
       unsigned position = (unsigned) uarg(f, 2);
-      sys_seek(fd, position);
+      f->eax = sys_seek(fd, position);
     }
 
     case SYS_READ: {
@@ -148,7 +148,7 @@ syscall_handler(struct intr_frame *f) {
     
     case SYS_TELL: {
       int fd = (int) uarg(f, 1);
-      sys_tell(fd);
+      f->eax = sys_tell(fd);
        break;
     }
     
@@ -282,15 +282,9 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
       
     /* Copy user string into kernel buffer */
     char kname[256];
-    int buffersize = sizeof(kname);
-    int len = strlen(u_file);
-    if (len >= buffersize){
-      sys_exit(-1);      //Accessing out of bound
-    }
-    if (len < 0) sys_exit(-1);                    // Length should never be less than 0
-    if (kname[0] == '\0') return -1;              // Name should never be null as well
-    strlcpy(kname, u_file, buffersize-1);         //Scary function, need protection from buffer overflow stuff
-    kname[buffersize-1] = "\0";                   //Adding null byte to end a string
+    ssize_t len = copy_in_cstr(kname, u_file, sizeof(kname));
+    if (len < 0) sys_exit(-1);
+    if (kname[0] == '\0') return -1;
     
     /* Open the file */
     lock_acquire(&file_lock);
@@ -343,7 +337,7 @@ static void sys_seek(int fd, unsigned position){
   if (file == NULL) return;   //Failed to get the file
 
   lock_acquire(&file_lock);
-  file_seek(*file, position);
+  file_seek(file, position);
   lock_release(&file_lock);
 }
 
@@ -470,7 +464,7 @@ static void fd_close_all(void) {
 }
 
 static struct file *fd_get(int fd){
-  if (fd <= 2) return NULL; //Ignore stdin and out
+  if ((fd < 2) || (fd >= FD_MAX)) return NULL; //Ignore stdin and out
 
   struct thread *current_thread = thread_current();
   return current_thread->file_descriptors[fd];
