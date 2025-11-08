@@ -35,6 +35,7 @@ static pid_t sys_exec(const char *cmd_line);
 static int sys_wait(pid_t pid);
 static int sys_filesize(int fd);
 static void sys_seek(int fd, unsigned position);
+static int sys_read (int fd, void *buffer, unsigned size);
 
 static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
@@ -135,12 +136,59 @@ syscall_handler(struct intr_frame *f) {
       unsigned position = (unsigned) uarg(f, 2);
       sys_seek(fd, position);
     }
+
+    case SYS_READ: {
+      int fd = (int) uarg(f, 1);                   // 1st arg: fd
+      void *ubuf = uarg_ptr(f, 2);                 // 2nd arg: user buffer ptr
+      unsigned size = (unsigned) uarg(f, 3);       // 3rd arg: size
+      f->eax = (uint32_t) sys_read(fd, ubuf, size);
+      break;
+    }
     
     default:
       sys_exit(-1);
       break;
   }
 }
+
+static int sys_read (int fd, void *ubuf, unsigned size) {
+  if (size == 0) return 0;
+  if (fd == 1) return -1;                 // stdout is not readable
+
+  // STDIN: read from keyboard
+  if (fd == 0) {
+    unsigned i = 0;
+    for (; i < size; i++) {
+      uint8_t c = input_getc();
+      if (!copy_out((uint8_t*)ubuf + i, &c, 1)) sys_exit(-1);
+    }
+    return (int)i;
+  }
+
+  // Regular file
+  struct file *f = fd_get(fd);
+  if (f == NULL) return -1;
+
+  const size_t CHUNK = 512;
+  uint8_t kbuf[CHUNK];
+  unsigned total = 0;
+
+  while (total < size) {
+    size_t want = size - total;
+    if (want > CHUNK) want = CHUNK;
+
+    lock_acquire(&file_lock);
+    int n = file_read(f, kbuf, (int)want);
+    lock_release(&file_lock);
+
+    if (n < 0) return -1;        // FS error
+    if (n == 0) break;           // EOF
+    if (!copy_out((uint8_t*)ubuf + total, kbuf, (size_t)n)) sys_exit(-1);
+    total += (unsigned)n;
+  }
+  return (int)total;
+}
+
 
 static void sys_exit(int status){
   struct thread *cur_thread = thread_current();
@@ -349,6 +397,13 @@ static bool sys_remove(const char *u_file) {
 static bool copy_in(void *kdst, const void *usrc, size_t n) {
   if (!valid_urange(usrc, n)) return false;
   memcpy(kdst, usrc, n);
+  return true;
+}
+
+// Copy kernel -> user; returns false on first bad byte/page.
+static bool copy_out(void *udst, const void *ksrc, size_t n) {
+  if (!valid_urange(udst, n)) return false;  // also ensures user-vaddr & mapped
+  memcpy(udst, ksrc, n);
   return true;
 }
 
