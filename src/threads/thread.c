@@ -155,6 +155,7 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   list_init (&sleeping_list);
+  lock_init (&initial_thread.children_lock);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -746,7 +747,10 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* user prog child list initilization*/
   list_init (&t->children);
-
+  t->executable = NULL;
+  for (int i = 0; i < FD_MAX; i++) {
+    t->file_descriptors[i] = NULL;
+  }
   /* MLFQS fields */
   t->nice = 0;
   t->recent_cpu = 0;
