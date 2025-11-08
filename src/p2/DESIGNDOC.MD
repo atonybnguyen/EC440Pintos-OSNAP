@@ -30,15 +30,22 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+
+
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
+In order to implement argument parsing, I had used the strtok_r command and had looped it continuously through the user input, parsing it by the spaces until there aren't any spaces left. The right order is achieved since strtok_r() returns a pointer to the first token from parsing, so each token is added from left to right. In order to avoid overflowing the stack page, we had used the helper function valid_urange which would check the length of the user's input.
+
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
+Pintos implement strtok_r amd mpt strtok() because that is part of the C library which isn't a part of tje 
+
 
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
@@ -53,14 +60,101 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+static struct lock file_lock;
+We are implementing a lock to ensure synchronization and everything is happening in the correct order
+
+typedef int ssize_t;
+A variable which we use to store the size of the user's input
+
+static void sys_exit(int status);
+The exit system call for our project
+
+static void sys_halt(void);
+The halt system call for the lab
+
+static int sys_write(int fd, const void *buffer, unsigned int size);
+The write system call for the lab
+
+static bool sys_create(const char *file, unsigned initial_size);
+The create system call for the lab
+
+static bool sys_remove(const char *file);
+The remove system call for the lab
+
+static int sys_open(const char *u_file);
+The open system call for the lab
+
+static void sys_close(int fd);
+The close system call for the lab
+
+static pid_t sys_exec(const char *cmd_line);
+The exec system call for the lab
+
+static int sys_wait(pid_t pid);
+The wait system call for the lab
+
+static int sys_filesize(int fd);
+The file size system call for the lab
+
+static void sys_seek(int fd, unsigned position);
+The seek system call for the lab
+
+static int sys_read (int fd, void *buffer, unsigned size);
+The read system call for the lab
+
+static unsigned sys_tell(int fd);
+The tell system call for the lab
+
+static void uaddr_check(const void *u);
+A helper function which checks to see if a given address is valid
+
+static uint32_t uarg(struct intr_frame *f, int i);
+A helper function which would hold the user input
+
+static void *uarg_ptr(struct intr_frame *f, int i);
+A helper function which point to the argument the user had inputted
+
+static const char *uarg_cstr(struct intr_frame *f, int i);
+A helper function that 
+
+static bool valid_urange(const void *uaddr, size_t size);
+A helper functon which checks to see if the range of the user input is valid
+
+
+static bool copy_in(void *kdst, const void *usrc, size_t n);
+A helper function which would write the user's input into a buffer
+
+static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
+A helper function which would copy in the user input
+
+
+//Helpers
+static struct file *fd_detach(int fd); /* Helper to detach a single from from file_descriptors */
+
+static void fd_close_all(void); 
+/*Close all fds during sys exit*/
+
+static struct file *fd_get(int fd); 
+/* Used to get the file, given fd */
+
+static bool copy_out(void *udst, const void *ksrc, size_t n);
+A helper function used to read from buffer and write it somewhere else
+
+static bool valid_uaddr(const void *uaddr);
+A helper function which checks if a address is a valid one
+
 >> B2: Describe how file descriptors are associated with open files.
+Whenever a file is open, a file descriptor is assigned to that process. In the case that another process opens the same file, it would receive a different file descriptor as well.
+
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+Unique within the entire OS
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
