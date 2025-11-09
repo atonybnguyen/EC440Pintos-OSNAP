@@ -404,45 +404,6 @@ static unsigned sys_tell(int fd){
   return position;
 }
 
-static int sys_read (int fd, void *ubuf, unsigned size) {
-  if (size == 0) return 0;
-  if (fd == 1) return -1;                 // stdout is not readable
-
-  // STDIN: read from keyboard
-  if (fd == 0) {
-    unsigned i = 0;
-    for (; i < size; i++) {
-      uint8_t c = input_getc();
-      if (!copy_out((uint8_t*)ubuf + i, &c, 1)) sys_exit(-1);
-    }
-    return (int)i;
-  }
-
-  // Regular file
-  struct file *f = fd_get(fd);
-  if (f == NULL) return -1;
-
-  const size_t CHUNK = 512;
-  uint8_t kbuf[CHUNK];
-  unsigned total = 0;
-
-  while (total < size) {
-    size_t want = size - total;
-    if (want > CHUNK) want = CHUNK;
-
-    lock_acquire(&file_lock);
-    int n = file_read(f, kbuf, (int)want);
-    lock_release(&file_lock);
-
-    if (n < 0) return -1;        // FS error
-    if (n == 0) break;           // EOF
-    if (!copy_out((uint8_t*)ubuf + total, kbuf, (size_t)n)) sys_exit(-1);
-    total += (unsigned)n;
-  }
-  return (int)total;
-}
-
-
 ////////////////////////// HELPERS ////////////////////
 
 // Returns true iff ptr is a mapped user address.
@@ -543,7 +504,7 @@ static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap) {
 }
 
 // Fetch a 32-bit arg from user stack at esp + 4*i
-static uint32_t `uarg(struct intr_frame *f, int i) {
+static uint32_t uarg(struct intr_frame *f, int i) {
   const void *p = (const uint8_t*) f->esp + 4*i;
   // Validate the 4-byte range (start and end)
   /*
