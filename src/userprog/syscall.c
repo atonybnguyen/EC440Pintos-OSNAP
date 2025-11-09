@@ -543,7 +543,7 @@ static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap) {
 }
 
 // Fetch a 32-bit arg from user stack at esp + 4*i
-static uint32_t `uarg(struct intr_frame *f, int i) {
+static uint32_t uarg(struct intr_frame *f, int i) {
   const void *p = (const uint8_t*) f->esp + 4*i;
   // Validate the 4-byte range (start and end)
   /*
