@@ -30,7 +30,8 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-
+static void parse_args(char *cmd_line, char **argv, int *argc);
+The function takes in the command that the user inputs and adds it to the stack in reverse order
 
 
 ---- ALGORITHMS ----
@@ -39,17 +40,23 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
-In order to implement argument parsing, I had used the strtok_r command and had looped it continuously through the user input, parsing it by the spaces until there aren't any spaces left. The right order is achieved since strtok_r() returns a pointer to the first token from parsing, so each token is added from left to right. In order to avoid overflowing the stack page, we had used the helper function valid_urange which would check the length of the user's input.
+In order to implement argument parsing, I had used the strtok_r command and had looped it continuously through the user input, parsing it by the spaces until there aren't any spaces left. The right order is achieved by setting up argv[] which will store everything from left to right and then in start_process(), the input is added onto the stack in reversed order with padding to align it for future items on the stack. In order to avoid overflowing the stack page, we had limited the input to PGSIZE, truncating the rest. 
+
 
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 Pintos implement strtok_r amd mpt strtok() because that is part of the C library which isn't a part of tje 
 
+Pintos implement strtok_r() but not strtok() because strtok() uses a static internal state to keep track of its position within the string being parsed, while strtok_r() requires us to give it that inforamtion. This would allow for multiple threads to parse string without any conflict with each others.
+
 
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
+
+Two advantage of this Unix approach is that in the case that there are issues in the separation, it won't be the kernal crashing which is , but just the shell. Another benefit is that the shell runs with the user's privilege, meaning that attackers can't take advantage of the kernal's root access to do execute malicious commands/code
+
 
 			     SYSTEM CALLS
 			     ============
@@ -106,16 +113,16 @@ static unsigned sys_tell(int fd);
 The tell system call for the lab
 
 static void uaddr_check(const void *u);
-A helper function which checks to see if a given address is valid
+A helper function which checks to see if a given user address is valid
 
 static uint32_t uarg(struct intr_frame *f, int i);
-A helper function which would hold the user input
+A helper function which would hold the user input as a uint32_t
 
 static void *uarg_ptr(struct intr_frame *f, int i);
 A helper function which point to the argument the user had inputted
 
 static const char *uarg_cstr(struct intr_frame *f, int i);
-A helper function that 
+A helper function that is used to hold the user input as a char
 
 static bool valid_urange(const void *uaddr, size_t size);
 A helper functon which checks to see if the range of the user input is valid
@@ -129,13 +136,14 @@ A helper function which would copy in the user input
 
 
 //Helpers
-static struct file *fd_detach(int fd); /* Helper to detach a single from from file_descriptors */
+static struct file *fd_detach(int fd); 
+Helper to detach a single from from file_descriptors
 
 static void fd_close_all(void); 
-/*Close all fds during sys exit*/
+Close all fds during sys exit
 
 static struct file *fd_get(int fd); 
-/* Used to get the file, given fd */
+Used to get the file, given fd
 
 static bool copy_out(void *udst, const void *ksrc, size_t n);
 A helper function used to read from buffer and write it somewhere else
@@ -143,12 +151,47 @@ A helper function used to read from buffer and write it somewhere else
 static bool valid_uaddr(const void *uaddr);
 A helper function which checks if a address is a valid one
 
+struct thread
+	struct file *file_descriptors[FD_MAX];
+The file descriptor table which holds all of the file descriptor
+
+	struct thread *parent;
+A pointer to the parent thread
+
+	struct list children;
+A list of all the children
+
+	struct file *executable;
+a struct used to enforce denying write to an executable file
+
+	struct child_process *my_record;
+It holds the information of this thread for parent process
+
+
+struct child_process
+      {
+      tid_t pid;                      /* Process ID */
+      int exit_status;                /* Exit status */
+      bool waited;                    /* Already waited */
+      bool exited;                    /* Has exited */
+      struct list_elem elem;          /* List element */
+
+      struct semaphore wait_sema;   /* Semaphore for wait */
+      struct semaphore load_sema;   /* Semaphore for load */
+
+      bool load_status;              /* Load success status */
+      struct thread *parent_thread; /* Pointer to the parent's thread */
+      };
+
 >> B2: Describe how file descriptors are associated with open files.
 Whenever a file is open, a file descriptor is assigned to that process. In the case that another process opens the same file, it would receive a different file descriptor as well.
 
+Whenever a file is open, a file descriptor is assigned to that process. In the case that another process opens the same file, it would have a different file descriptor for that open file as well. The fd 0 and 1 are reserved for stdin and stdout across all processes.
+
+
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
-Unique within the entire OS
+File descriptor is unique within just a single process
 
 ---- ALGORITHMS ----
 
