@@ -165,11 +165,17 @@ File descriptor is unique within just a single process
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
 
+We use a validate-before-dereference strategy in userprog/syscall.c: uarg() / uarg_ptr() / uarg_cstr() read raw args from the user stack, then valid_uaddr()/valid_urange() and copy helpers like copy_in() and copy_in_cstr() safely stage data into kernel buffers before any filesystem or kernel logic runs. This avoids kernel panics from bad pointers, keeps locking clean (we never touch user memory while file_lock is held), and trades a bit of overhead for simpler reasoning compared to trapping and recovering in page_fault().
+
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
 
+Each process has a per-process FD table (file_descriptors[FD_MAX], fds start at 2) with helpers fd_detach() and fd_close_all(); fd=0/1 are special-cased to console input/output and don’t consume table slots. We guard all filesys_*/file_* calls with a single global file_lock, which makes correctness straightforward (no re-entrancy races), gives O(1) lookup, and isolates processes; the downsides are a fixed per-process capacity and serialization across all FS ops due to the coarse lock.
+
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+We keep the identity mapping (a process’s pid is its thread tid), so exec() returns the child’s tid and wait() keys off that id; this keeps bookkeeping minimal and reuses existing thread infrastructure. The tradeoff is less flexibility if we later want a separate PID namespace or multiple threads per process; identity mapping conflates “thread id” and “process id,” which could require refactoring in later projects.
 
 			   SURVEY QUESTIONS
 			   ================
