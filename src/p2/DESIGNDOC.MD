@@ -73,85 +73,8 @@ We are implementing a lock to ensure synchronization and everything is happening
 typedef int ssize_t;
 A variable which we use to store the size of the user's input
 
-static void sys_exit(int status);
-The exit system call for our project
 
-static void sys_halt(void);
-The halt system call for the lab
-
-static int sys_write(int fd, const void *buffer, unsigned int size);
-The write system call for the lab
-
-static bool sys_create(const char *file, unsigned initial_size);
-The create system call for the lab
-
-static bool sys_remove(const char *file);
-The remove system call for the lab
-
-static int sys_open(const char *u_file);
-The open system call for the lab
-
-static void sys_close(int fd);
-The close system call for the lab
-
-static pid_t sys_exec(const char *cmd_line);
-The exec system call for the lab
-
-static int sys_wait(pid_t pid);
-The wait system call for the lab
-
-static int sys_filesize(int fd);
-The file size system call for the lab
-
-static void sys_seek(int fd, unsigned position);
-The seek system call for the lab
-
-static int sys_read (int fd, void *buffer, unsigned size);
-The read system call for the lab
-
-static unsigned sys_tell(int fd);
-The tell system call for the lab
-
-static void uaddr_check(const void *u);
-A helper function which checks to see if a given user address is valid
-
-static uint32_t uarg(struct intr_frame *f, int i);
-A helper function which would hold the user input as a uint32_t
-
-static void *uarg_ptr(struct intr_frame *f, int i);
-A helper function which point to the argument the user had inputted
-
-static const char *uarg_cstr(struct intr_frame *f, int i);
-A helper function that is used to hold the user input as a char
-
-static bool valid_urange(const void *uaddr, size_t size);
-A helper functon which checks to see if the range of the user input is valid
-
-
-static bool copy_in(void *kdst, const void *usrc, size_t n);
-A helper function which would write the user's input into a buffer
-
-static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
-A helper function which would copy in the user input
-
-
-//Helpers
-static struct file *fd_detach(int fd); 
-Helper to detach a single from from file_descriptors
-
-static void fd_close_all(void); 
-Close all fds during sys exit
-
-static struct file *fd_get(int fd); 
-Used to get the file, given fd
-
-static bool copy_out(void *udst, const void *ksrc, size_t n);
-A helper function used to read from buffer and write it somewhere else
-
-static bool valid_uaddr(const void *uaddr);
-A helper function which checks if a address is a valid one
-
-struct thread
+struct thread:
 	struct file *file_descriptors[FD_MAX];
 The file descriptor table which holds all of the file descriptor
 
@@ -165,15 +88,15 @@ A list of all the children
 a struct used to enforce denying write to an executable file
 
 	struct child_process *my_record;
-It holds the information of this thread for parent process
+It holds the information of this thread for parent process to access
 
 
 struct child_process
       {
       tid_t pid;                      /* Process ID */
       int exit_status;                /* Exit status */
-      bool waited;                    /* Already waited */
-      bool exited;                    /* Has exited */
+      bool waited;                    /* Already waited or not */
+      bool exited;                    /* Has exited or not*/
       struct list_elem elem;          /* List element */
 
       struct semaphore wait_sema;   /* Semaphore for wait */
@@ -184,13 +107,13 @@ struct child_process
       };
 
 >> B2: Describe how file descriptors are associated with open files.
-Whenever a file is open, a file descriptor is assigned to that process. In the case that another process opens the same file, it would receive a different file descriptor as well.
 
 Whenever a file is open, a file descriptor is assigned to that process. In the case that another process opens the same file, it would have a different file descriptor for that open file as well. The fd 0 and 1 are reserved for stdin and stdout across all processes.
 
 
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+
 File descriptor is unique within just a single process
 
 ---- ALGORITHMS ----
