@@ -121,6 +121,7 @@ File descriptor is unique within just a single process
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
 
+For writing user's data, we had first validate that the buffer we are writing to falls within the user space, both the start and end of it. We then would copy the information from the kernel's buffer to the user's buffer. In the case of reading, it is the opposite, except we would first read the file into the kernel's buffer first, and then we would copy it over to the user's buffer. Prior to copying over the data, we would first make sure that the user's buffer falls within the user space, then we would copy the buffer data in chunks of 512 bytes to avoid large stack allocations. In the case that fd is set to 0, we would take the reading from the user's keyboard instead with input_getc() and storing it in the user's buffer. If fd is set to 1, then we would copy the user's buffer to the kernel's buffer and then writing that information to the console.
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
