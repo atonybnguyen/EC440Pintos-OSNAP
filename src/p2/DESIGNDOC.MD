@@ -17,9 +17,13 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
 
+Made a Git build pipeline that runs sanity checks every merge to main. It connects to the docker container stored on github using private keys. It took forever intiially to build the docker image each time this check ran taking nearly 5/6 minutes to run the full pipeline. I cached the docker build processes that would repeat each time a build occured and reduced the time to 2/3 minutes. Once in the container I would direct the actions to both threads and userprog and built pintos from both to ensure any push wouldn't break functionality. I ran into an issue however running make check in both directories because it wouldn't allow me to run pintos headless with the tests, might circle back to it in the future. -anthony
+
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
+
+generative ai and a dream
 
 			   ARGUMENT PASSING
 			   ================
@@ -131,6 +135,13 @@ File descriptor is unique within just a single process
 
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+	 Our sys_wait function calls process_wait and passes the process id as the argument.
+	 process_waits retrieves all the children in the current process list and adds them 
+	 to the child process lists. If the current process identifier matches the child identifier
+	 it removes the child from the child process list. We also used a semaphore data structure
+	 to process each child process without synchronization problems. Once the child exits we free
+	 the child process and return the exit_status.
+
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -146,12 +157,28 @@ File descriptor is unique within just a single process
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
 
+	In our sys_write, we dedicated valid_urange as our source of validation
+	valid urange checks if the user memory region is validly mapped out and if at any point
+	the validation fails then the system would exit using sys_exit. copy_in copies the data between
+	the user and kernel space. sys_exit performs all the resource application such as 
+	closing file descriptors, freeing memory, restoring write access, closing executables,
+	notifying parents/waiters, freeing records, and ultimately exiting the thread.
+	Buffers are allocated locally and immediately terminate upon error. Locks are only acquired
+	when during a necessary file operation and released after the operation finishes.  
+
+	using valid_urange allows checking user memory and prevents reading or writing to invalid memory
+	Early termination allows us to protect our memory space from changes and prevents corruption.
+	Also by utilizing sys_exit it centralizes all cleanups to that one function and seperates responsiblities with each function. 
+		
+
 ---- SYNCHRONIZATION ----
 
 >> B7: The "exec" system call returns -1 if loading the new executable
 >> fails, so it cannot return before the new executable has completed
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
+		We created the child_process structs and load_sema  to manage the processes. The parent thread
+		calls exec creating a child_process struct and initilzes the load_sema. The parent creates a new process and blocks itself by calling sema_down ensuring the parent can't operate until the child signals that its process is complete. The child process executes the start process and loads the executable. The child then signals the parent whether loading fails or not with booleans flags and sema. Once the parent is unblocked it checks if the load status is successful and adds the child process to a list and if it doesn't it frees the memory and returns errors.  
 
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
@@ -159,6 +186,7 @@ File descriptor is unique within just a single process
 >> that all resources are freed in each case?  How about when P
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
+		We implemented a wait_sema and booleans in the child_process struct. Before C exits, P is immediately blocked until C executes sys_exit and signals the completion to P to unblock it. After C exits first it calls sys_exit calling sema_up when P waits it sema_down and P proceeds. When P terminates without waiting the C becompes an orphan (O). sys_exit checks if there are any orphans and tells any orphan to free itself. If P terminates after C exits, P calls process_exits which determines if the C has already exited and frees the C. In cleanup, we ensured that P successfully frees C after recieving exit statuses. The process_exit also utilizes pagedir_destroy and we also utilized fd_close_all. We had to change exceptions to call sys_exit wwhenever there is a page fault to also unionize all the exit functions.
 
 ---- RATIONALE ----
 

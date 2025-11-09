@@ -336,7 +336,7 @@ static bool sys_create(const char *u_file, unsigned initial_size) {
     char kname[256];
     ssize_t len = copy_in_cstr(kname, u_file, sizeof(kname));
     if (len == -1) sys_exit(-1);      // Bad pointer, kill process
-    if (len == -2) return -1;         // String too long, just
+    if (len == -2) return -1;         // String too long, just fail the open
     if (kname[0] == '\0') return -1;
     
     /* Open the file */
@@ -442,19 +442,6 @@ static bool valid_urange(const void *uaddr, size_t size) {
       return false;
 
   return true;
-  /*
-  const uint8_t *ptr = (const uint8_t *)uaddr;
-  const uint8_t *end = ptr + size;
-  while (ptr < end) {
-    if (!valid_uaddr(ptr)) return false;
-    // jump to next page (avoid O(size) loops on huge buffers)
-    size_t advance = PGSIZE - pg_ofs(ptr);
-    if (advance == 0) advance = PGSIZE;
-    if (ptr + advance < ptr) return false; // overflow guard
-    ptr += advance;
-  }
-  return size == 0 || valid_uaddr((const uint8_t*)uaddr + size - 1);
-  */
 }
 
 static bool sys_remove(const char *u_file) {
