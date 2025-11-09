@@ -134,6 +134,12 @@ For writing user's data, we had first validate that the buffer we are writing to
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+The least number of inspection of the page table would be 0 in the case that the data is written into an empty and loaded page. The greatest number of inspection of the page table would be
+2 times, which is when the input is written to two pages and they are both not loaded in yet, leading to pagedir_get_page() being called twice. The same applies to the case
+that the system call copies 2 bytes of data, either it fully fits in the page, or is split between two pages. There isn't much more room for improvement with the way
+that we have implemented the system since we didn't use pagedir_get_page() during our implementation of the lab.
+
+
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
 	 Our sys_wait function calls process_wait and passes the process id as the argument.
