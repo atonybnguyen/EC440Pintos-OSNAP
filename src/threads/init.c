@@ -38,6 +38,12 @@
 #include "filesys/fsutil.h"
 #endif
 
+/* ADD THIS FOR LAB 3 */
+#ifdef VM
+#include "vm/frame.h"
+#include "vm/swap.h"
+#endif
+
 /* Page directory with kernel mappings only. */
 uint32_t *init_page_dir;
 
@@ -127,6 +133,12 @@ pintos_init (void)
   filesys_init (format_filesys);
 #endif
 
+  /* LAB 3: Initialize VM subsystems AFTER palloc_init but BEFORE any user programs run */
+#ifdef VM
+  frame_init ();
+  swap_init ();
+#endif
+
   printf ("Boot complete.\n");
   
   if (*argv != NULL) {
@@ -201,7 +213,7 @@ pintos_init (void)
   }
   shutdown_power_off ();
 }
-
+
 /* Clear the "BSS", a segment that should be initialized to
    zeros.  It isn't actually stored on disk or zeroed by the
    kernel loader, so we have to zero it ourselves.
