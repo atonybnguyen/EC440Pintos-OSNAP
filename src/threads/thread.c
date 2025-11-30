@@ -21,7 +21,9 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
-
+#ifdef VM
+#include "vm/page.h"
+#endif
 // Debugging breadcrumbs for MLFQS
 static volatile int dbg_second_edges = 0;
 static volatile int dbg_recompute_4tick = 0;
@@ -168,6 +170,11 @@ thread_init (void)
 void
 thread_start (void) 
 {
+#ifdef VM
+  spt_init(&initial_thread->spt);
+  mmap_init(&initial_thread->mmap_list);  // ADD THIS LINE
+#endif
+
   /* Create the idle thread. */
   struct semaphore idle_started;
   sema_init (&idle_started, 0);
@@ -779,6 +786,16 @@ init_thread (struct thread *t, const char *name, int priority)
     /* Non-MLFQS: use caller-provided priority. */
     t->priority = priority;
   }
+
+#ifdef VM
+  if (t != initial_thread) {
+    spt_init(&t->spt);
+    t->esp_on_syscall = NULL;
+    mmap_init(&t->mmap_list);  // ADD THIS LINE
+  } else {
+    t->esp_on_syscall = NULL;
+  }
+#endif
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
