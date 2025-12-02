@@ -10,7 +10,8 @@ enum page_type
 {
   PAGE_FILE,      /* Page loaded from file */
   PAGE_SWAP,      /* Page swapped to disk */
-  PAGE_ZERO       /* Page of all zeros */
+  PAGE_ZERO,      /* Page of all zeros */
+  PAGE_MMAP       /* Memory-mapped file page */
 };
 
 /* Supplemental page table entry */
@@ -22,7 +23,7 @@ struct spt_entry
   bool writable;            /* Whether page is writable */
   bool loaded;              /* Whether page is currently in memory */
   
-  /* For file-backed pages */
+  /* For file-backed pages (both PAGE_FILE and PAGE_MMAP) */
   struct file *file;        /* File to read from */
   off_t file_offset;        /* Offset in file */
   uint32_t read_bytes;      /* Bytes to read from file */
@@ -30,6 +31,9 @@ struct spt_entry
   
   /* For swapped pages */
   size_t swap_slot;         /* Swap slot index */
+  
+  /* For MMAP pages */
+  int mapid;                /* Mapping ID (for PAGE_MMAP only) */
   
   struct hash_elem elem;    /* Hash table element */
 };
@@ -54,6 +58,11 @@ bool spt_set_file(struct spt *spt, void *upage, struct file *file,
 
 /* Add a zero page to the supplemental page table */
 bool spt_set_zero(struct spt *spt, void *upage, bool writable);
+
+/* Add a memory-mapped page to the supplemental page table */
+bool spt_set_mmap(struct spt *spt, void *upage, struct file *file,
+                  off_t ofs, uint32_t read_bytes, uint32_t zero_bytes,
+                  int mapid);
 
 /* Mark a page as loaded with its kernel page */
 bool spt_set_loaded(struct spt *spt, void *upage, void *kpage);
