@@ -136,7 +136,6 @@ find_frame(void *kpage)
 static void *
 evict_frame(void)
 {
-  /* Use interrupt disabling instead of locks for frame table */
   enum intr_level old_level = intr_disable();
   
   if (list_empty(&frame_table))
@@ -145,7 +144,6 @@ evict_frame(void)
       return NULL;
     }
   
-  /* Initialize clock hand if needed */
   if (clock_hand == NULL || clock_hand == list_end(&frame_table))
     clock_hand = list_begin(&frame_table);
   
@@ -153,7 +151,6 @@ evict_frame(void)
   size_t iterations = 0;
   size_t max_iterations = list_size(&frame_table) * 2;
   
-  /* Clock algorithm */
   while (iterations < max_iterations)
     {
       struct frame_entry *entry = list_entry(clock_hand, struct frame_entry, elem);
@@ -184,14 +181,13 @@ evict_frame(void)
       return NULL;
     }
   
-  /* Extract all info we need */
   void *kpage = victim->kpage;
   void *upage = victim->upage;
   struct thread *owner = victim->owner;
   uint32_t *pd = owner->pagedir;
   bool dirty = pagedir_is_dirty(pd, upage);
   
-  /* Clear page table entry */
+  /* Clear page table entry first */
   pagedir_clear_page(pd, upage);
   
   /* Move clock hand */
@@ -203,47 +199,43 @@ evict_frame(void)
   list_remove(&victim->elem);
   free(victim);
   
-  /* NOW re-enable interrupts before any I/O or lock operations */
+  /* Re-enable interrupts */
   intr_set_level(old_level);
   
-  /* Handle eviction with locks allowed */
+  /* Update SPT */
   struct spt_entry *spt_entry = spt_get_entry(&owner->spt, upage);
   
   if (spt_entry != NULL)
     {
       lock_acquire(&owner->spt.lock);
       
-      if (spt_entry->type == PAGE_MMAP)
+      /* Mark as not loaded FIRST to prevent races */
+      spt_entry->loaded = false;
+      spt_entry->kpage = NULL;
+      
+      bool is_mmap = (spt_entry->type == PAGE_MMAP);
+      bool is_writable = spt_entry->writable;
+      struct file *file = spt_entry->file;
+      off_t file_offset = spt_entry->file_offset;
+      uint32_t read_bytes = spt_entry->read_bytes;
+      
+      lock_release(&owner->spt.lock);
+      
+      /* Now do I/O operations */
+      if (is_mmap && dirty)
         {
-          spt_entry->loaded = false;
-          spt_entry->kpage = NULL;
-          lock_release(&owner->spt.lock);
-          
-          if (dirty)
-            {
-              lock_acquire(&file_lock);
-              file_seek(spt_entry->file, spt_entry->file_offset);
-              file_write(spt_entry->file, kpage, spt_entry->read_bytes);
-              lock_release(&file_lock);
-            }
+          lock_acquire(&file_lock);
+          file_seek(file, file_offset);
+          file_write(file, kpage, read_bytes);
+          lock_release(&file_lock);
         }
-      else if (dirty || spt_entry->writable)
+      else if (!is_mmap && (dirty || is_writable))
         {
-          lock_release(&owner->spt.lock);
-          
           size_t swap_slot = swap_out(kpage);
           
           lock_acquire(&owner->spt.lock);
           spt_entry->type = PAGE_SWAP;
           spt_entry->swap_slot = swap_slot;
-          spt_entry->loaded = false;
-          spt_entry->kpage = NULL;
-          lock_release(&owner->spt.lock);
-        }
-      else
-        {
-          spt_entry->loaded = false;
-          spt_entry->kpage = NULL;
           lock_release(&owner->spt.lock);
         }
     }
