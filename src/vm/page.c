@@ -32,15 +32,20 @@ spt_destroy(struct spt *spt)
   lock_release(&spt->lock);
 }
 
-static void check_write_back(struct spt_entry *entry){
-  if (entry->type == PAGE_MMAP && entry->loaded && entry->file){
-    struct thread *t = thread_current();
-    if (pagedir_is_dirty(t->pagedir, entry->upage)){
-      lock_acquire(&file_lock);
-      file_write_at(entry->file, entry->kpage, entry->read_bytes, entry->file_offset);
-      lock_release(&file_lock);
+static void check_write_back(struct spt_entry *entry)
+{
+  if (entry->type == PAGE_MMAP && entry->loaded && entry->kpage != NULL)
+    {
+      struct thread *t = thread_current();
+      /* Verify the page is actually in the page directory */
+      void *kpage = pagedir_get_page(t->pagedir, entry->upage);
+      if (kpage != NULL && pagedir_is_dirty(t->pagedir, entry->upage))
+        {
+          lock_acquire(&file_lock);
+          file_write_at(entry->file, kpage, entry->read_bytes, entry->file_offset);
+          lock_release(&file_lock);
+        }
     }
-  }
 }
 
 /* Add a file-backed page to the supplemental page table */
@@ -343,14 +348,18 @@ static void
 spt_destroy_func(struct hash_elem *e, void *aux UNUSED)
 {
   struct spt_entry *entry = hash_entry(e, struct spt_entry, elem);
+  struct thread *t = thread_current();
   
   check_write_back(entry);
 
-  /* If page is loaded, free the frame */
-  if (entry->loaded && entry->kpage != NULL)
+  /* Only free the frame if the page is still in the page directory */
+  void *kpage = pagedir_get_page(t->pagedir, entry->upage);
+  if (kpage != NULL)
     {
-      frame_free(entry->kpage);
-      pagedir_clear_page(thread_current()->pagedir, entry->upage);
+      /* Clear from page directory first */
+      pagedir_clear_page(t->pagedir, entry->upage);
+      /* Then free the frame */
+      frame_free(kpage);
     }
   
   /* Free swap slot if in swap */
