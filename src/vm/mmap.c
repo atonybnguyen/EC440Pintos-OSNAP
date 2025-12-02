@@ -1,12 +1,17 @@
 #include "vm/mmap.h"
 #include <stdio.h>
+#include <string.h>
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 #include "userprog/pagedir.h"
 #include "filesys/file.h"
 #include "vm/page.h"
 #include "vm/frame.h"
+
+/* External file lock from syscall.c (declared non-static there) */
+extern struct lock file_lock;
 
 static int next_mapid = 1;
 
@@ -83,20 +88,31 @@ mmap_unmap(int mapid)
           for (size_t i = 0; i < mapping->page_count; i++)
             {
               void *upage = mapping->start_addr + i * PGSIZE;
-              struct spt_entry *entry = spt_get_entry(&t->spt, upage);
               
-              if (entry != NULL && entry->loaded)
+              /* Check if page is in page directory (loaded) */
+              void *kpage = pagedir_get_page(t->pagedir, upage);
+              if (kpage != NULL)
                 {
                   /* Check if page is dirty */
                   if (pagedir_is_dirty(t->pagedir, upage))
                     {
-                      /* Write page back to file */
-                      file_seek(entry->file, entry->file_offset);
-                      file_write(entry->file, entry->kpage, entry->read_bytes);
+                      /* Get SPT entry for file info */
+                      struct spt_entry *entry = spt_get_entry(&t->spt, upage);
+                      if (entry != NULL && entry->type == PAGE_MMAP)
+                        {
+                          /* Write page back to file - only write the bytes that came from file */
+                          if (entry->read_bytes > 0)
+                            {
+                              lock_acquire(&file_lock);
+                              file_seek(entry->file, entry->file_offset);
+                              file_write(entry->file, kpage, entry->read_bytes);
+                              lock_release(&file_lock);
+                            }
+                        }
                     }
                   
                   /* Free the frame and clear page table entry */
-                  frame_free(entry->kpage);
+                  frame_free(kpage);
                   pagedir_clear_page(t->pagedir, upage);
                 }
               
@@ -105,7 +121,9 @@ mmap_unmap(int mapid)
             }
           
           /* Close the file */
+          lock_acquire(&file_lock);
           file_close(mapping->file);
+          lock_release(&file_lock);
           
           /* Remove from list and free */
           list_remove(e);
