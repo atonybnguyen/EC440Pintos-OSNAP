@@ -9,6 +9,7 @@
 #include "filesys/file.h"
 #include "vm/frame.h"
 #include "vm/swap.h"
+#include "userprog/syscall.h"
 
 static unsigned spt_hash_func(const struct hash_elem *e, void *aux);
 static bool spt_less_func(const struct hash_elem *a, const struct hash_elem *b, void *aux);
@@ -29,6 +30,17 @@ spt_destroy(struct spt *spt)
   lock_acquire(&spt->lock);
   hash_destroy(&spt->table, spt_destroy_func);
   lock_release(&spt->lock);
+}
+
+static void check_write_back(struct spt_entry *entry){
+  if (entry->type == PAGE_MMAP && entry->loaded && entry->file){
+    struct thread *t = thread_current();
+    if (pagedir_is_dirty(t->pagedir, entry->upage)){
+      lock_acquire(&file_lock);
+      file_write_at(entry->file, entry->kpage, entry->read_bytes, entry->file_offset);
+      lock_release(&file_lock);
+    }
+  }
 }
 
 /* Add a file-backed page to the supplemental page table */
@@ -206,15 +218,18 @@ spt_load_page(struct spt *spt, void *upage)
   if (type == PAGE_FILE || type == PAGE_MMAP)
     {
       /* Load from file */
+      lock_acquire(&file_lock);
       if (read_bytes > 0)
         {
           file_seek(file, file_offset);
           if (file_read(file, kpage, read_bytes) != (int) read_bytes)
             {
+              lock_release(&file_lock);
               frame_free(kpage);
               return false;
             }
         }
+      lock_release(&file_lock);
       memset(kpage + read_bytes, 0, zero_bytes);
       success = true;
     }
@@ -327,6 +342,8 @@ spt_destroy_func(struct hash_elem *e, void *aux UNUSED)
 {
   struct spt_entry *entry = hash_entry(e, struct spt_entry, elem);
   
+  check_write_back(entry);
+
   /* If page is loaded, free the frame */
   if (entry->loaded && entry->kpage != NULL)
     {

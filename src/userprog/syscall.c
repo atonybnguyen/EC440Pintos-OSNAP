@@ -13,6 +13,7 @@
 #include "threads/synch.h"
 #include "devices/input.h"
 #include "filesys/directory.h"
+#include "threads/malloc.h"
 
 #ifdef VM
 #include "vm/frame.h"
@@ -21,7 +22,7 @@
 #endif
 
 static void syscall_handler (struct intr_frame *);
-static struct lock file_lock;
+struct lock file_lock;
 typedef int ssize_t;
 typedef int mapid_t;
 
@@ -49,7 +50,7 @@ static void uaddr_check(const void *u);
 static uint32_t uarg(struct intr_frame *f, int i);
 static void *uarg_ptr(struct intr_frame *f, int i);
 static const char *uarg_cstr(struct intr_frame *f, int i);
-static bool valid_urange(const void *uaddr, size_t size);
+static bool valid_urange(const void *uaddr, size_t size, bool writable);
 static bool copy_in(void *kdst, const void *usrc, size_t n);
 static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap);
 static struct file *fd_detach(int fd);
@@ -262,7 +263,7 @@ sys_munmap(mapid_t mapid)
 static int sys_read (int fd, void *ubuf, unsigned size) {
   if (size == 0) return 0;
   if (fd == 1) return -1;
-  if (!valid_urange(ubuf, size)) sys_exit(-1);
+  if (!valid_urange(ubuf, size, true)) sys_exit(-1);
 
 #ifdef VM
   pin_buffer(ubuf, size);
@@ -375,7 +376,7 @@ static int sys_wait (pid_t pid){
 
 static int sys_write(int fd, const void *ubuf, unsigned size) {
   if (size == 0) return 0;
-  if (!valid_urange(ubuf, size)) sys_exit(-1);
+  if (!valid_urange(ubuf, size, false)) sys_exit(-1);
   if (fd == 0) return -1;
 
 #ifdef VM
@@ -527,16 +528,37 @@ static unsigned sys_tell(int fd){
 }
 
 /* Helper functions */
-static bool valid_uaddr(const void *uaddr) {
+static bool valid_uaddr(const void *uaddr, bool writable) {
+  if (uaddr == NULL || !is_user_vaddr(uaddr)) return false;
+
 #ifdef VM
-  return uaddr != NULL && is_user_vaddr(uaddr) && (uintptr_t)uaddr >= 0x08048000;
+  struct thread *t = thread_current();
+  struct spt_entry *entry = spt_get_entry(&t->spt, pg_round_down(uaddr));
+  
+  if (entry != NULL){
+    if (writable && !entry->writable) return false;
+    return true;
+  }
+  void *esp = t->esp_on_syscall;
+  if (uaddr >= (void*)((uint8_t*)PHYS_BASE - 8*1024*1024) && uaddr < PHYS_BASE) {
+      if (uaddr >= (esp - 32)) {
+          if (spt_get_entry(&t->spt, pg_round_down(esp)) != NULL) {
+             return true; 
+          }
+      }
+  }
+  return false;
+
 #else
-  return uaddr != NULL && is_user_vaddr(uaddr);
+  void *kpage = pagedir_get_page(thread_current()->pagedir, uaddr);
+  if (kpage == NULL) return false;
+  return true;
+
 #endif
 }
 
 static inline void uaddr_check(const void *u) {
-  if (!valid_uaddr(u)) sys_exit(-1);
+  if (!valid_uaddr(u, false)) sys_exit(-1);
 }
 
 static void* uarg_ptr(struct intr_frame *f, int i) {
@@ -549,12 +571,19 @@ static const char* uarg_cstr(struct intr_frame *f, int i) {
   return (const char*) uarg_ptr(f, i);
 }
 
-static bool valid_urange(const void *uaddr, size_t size) {
+static bool valid_urange(const void *uaddr, size_t size, bool writable) {
   if (uaddr == NULL) return false;
-  if (!is_user_vaddr(uaddr)) return false;
-  if ((uintptr_t)uaddr + size < (uintptr_t)uaddr) return false;
-  if ((size > 0) && !is_user_vaddr((const uint8_t*)uaddr + size - 1)) 
-      return false;
+  if (size == 0) return true;
+
+  // Check start of buffer
+  if (!valid_uaddr(uaddr, writable)) return false;
+
+  // Check end of buffer 
+  const void *end = (const char*)uaddr + size - 1;
+  if (!valid_uaddr(end, writable)) return false;
+  
+  // Check if the buffer wraps around
+  //if ((uintptr_t)uaddr > (uintptr_t)end) return false;
   return true;
 }
 
@@ -573,23 +602,23 @@ static bool sys_remove(const char *u_file) {
 }
 
 static bool copy_in(void *kdst, const void *usrc, size_t n) {
-  if (!valid_urange(usrc, n)) return false;
+  if (!valid_urange(usrc, n, false)) return false;
   memcpy(kdst, usrc, n);
   return true;
 }
 
 static bool copy_out(void *udst, const void *ksrc, size_t n) {
-  if (!valid_urange(udst, n)) return false;
+  if (!valid_urange(udst, n, true)) return false;
   memcpy(udst, ksrc, n);
   return true;
 }
 
 static ssize_t copy_in_cstr(char *kbuf, const char *ustr, size_t cap) {
-  if (!valid_uaddr(ustr)) return -1;
+  if (!valid_uaddr(ustr, false)) return -1;
 
   for (size_t i = 0; i < cap; i++) {
     const char *up = ustr + i;
-    if (!valid_uaddr(up)) return -1;
+    if (!valid_uaddr(up, false)) return -1;
     char c = *(volatile const char *)up;
     kbuf[i] = c;
     if (c == '\0') return (ssize_t)i;
