@@ -9,6 +9,8 @@
 #include "filesys/file.h"
 #include "vm/page.h"
 #include "vm/swap.h"
+#include "userprog/syscall.h"
+#include "threads/interrupt.h"
 
 static struct list frame_table;     /* List of all frames */
 static struct lock frame_lock;      /* Lock for frame table */
@@ -34,19 +36,16 @@ frame_alloc(enum palloc_flags flags, void *upage)
   
   void *kpage = palloc_get_page(flags);
   
-  /* If allocation fails, try evicting a frame */
   if (kpage == NULL)
     {
       kpage = evict_frame();
       if (kpage == NULL)
         PANIC("Out of memory - cannot evict frame");
       
-      /* Zero the frame if requested */
       if (flags & PAL_ZERO)
         memset(kpage, 0, PGSIZE);
     }
   
-  /* Create frame entry */
   struct frame_entry *entry = malloc(sizeof(struct frame_entry));
   if (entry == NULL)
     {
@@ -59,23 +58,21 @@ frame_alloc(enum palloc_flags flags, void *upage)
   entry->owner = thread_current();
   entry->pinned = false;
   
-  lock_acquire(&frame_lock);
+  enum intr_level old_level = intr_disable();
   list_push_back(&frame_table, &entry->elem);
-  lock_release(&frame_lock);
+  intr_set_level(old_level);
   
   return kpage;
 }
 
-/* Free a frame */
 void 
 frame_free(void *kpage)
 {
-  lock_acquire(&frame_lock);
+  enum intr_level old_level = intr_disable();
   
   struct frame_entry *entry = find_frame(kpage);
   if (entry != NULL)
     {
-      /* If clock hand points to this frame, move it */
       if (clock_hand == &entry->elem)
         {
           clock_hand = list_next(clock_hand);
@@ -87,7 +84,7 @@ frame_free(void *kpage)
       free(entry);
     }
   
-  lock_release(&frame_lock);
+  intr_set_level(old_level);
   
   palloc_free_page(kpage);
 }
@@ -135,14 +132,16 @@ find_frame(void *kpage)
 }
 
 /* Evict a frame using clock algorithm */
+/* Evict a frame using clock algorithm */
 static void *
 evict_frame(void)
 {
-  lock_acquire(&frame_lock);
+  /* Use interrupt disabling instead of locks for frame table */
+  enum intr_level old_level = intr_disable();
   
   if (list_empty(&frame_table))
     {
-      lock_release(&frame_lock);
+      intr_set_level(old_level);
       return NULL;
     }
   
@@ -154,31 +153,24 @@ evict_frame(void)
   size_t iterations = 0;
   size_t max_iterations = list_size(&frame_table) * 2;
   
-  /* Clock algorithm: look for unpinned, unaccessed page */
+  /* Clock algorithm */
   while (iterations < max_iterations)
     {
       struct frame_entry *entry = list_entry(clock_hand, struct frame_entry, elem);
       
-      /* Skip pinned frames */
       if (!entry->pinned)
         {
           uint32_t *pd = entry->owner->pagedir;
           
-          /* Check accessed bit */
           if (pagedir_is_accessed(pd, entry->upage))
-            {
-              /* Give it a second chance */
-              pagedir_set_accessed(pd, entry->upage, false);
-            }
+            pagedir_set_accessed(pd, entry->upage, false);
           else
             {
-              /* Found victim */
               victim = entry;
               break;
             }
         }
       
-      /* Move clock hand */
       clock_hand = list_next(clock_hand);
       if (clock_hand == list_end(&frame_table))
         clock_hand = list_begin(&frame_table);
@@ -188,56 +180,21 @@ evict_frame(void)
   
   if (victim == NULL)
     {
-      lock_release(&frame_lock);
+      intr_set_level(old_level);
       return NULL;
     }
   
-  /* Evict the victim frame */
+  /* Extract all info we need */
   void *kpage = victim->kpage;
   void *upage = victim->upage;
   struct thread *owner = victim->owner;
   uint32_t *pd = owner->pagedir;
-  
-  /* Check if page is dirty */
   bool dirty = pagedir_is_dirty(pd, upage);
   
-  /* Get supplemental page table entry */
-  struct spt_entry *spt_entry = spt_get_entry(&owner->spt, upage);
-  
-  if (spt_entry != NULL)
-    {
-      /* Check page type */
-      if (spt_entry->type == PAGE_MMAP)
-        {
-          /* MMAP page - write back if dirty, don't swap */
-          if (dirty)
-            {
-              /* Write page back to file */
-              file_seek(spt_entry->file, spt_entry->file_offset);
-              file_write(spt_entry->file, kpage, spt_entry->read_bytes);
-            }
-          /* Mark as not loaded, but keep in SPT for re-loading */
-          spt_entry->loaded = false;
-          spt_entry->kpage = NULL;
-        }
-      else if (dirty || spt_entry->writable)
-        {
-          /* Regular writable page or dirty page - swap out */
-          size_t swap_slot = swap_out(kpage);
-          spt_set_swap(&owner->spt, upage, swap_slot);
-        }
-      else
-        {
-          /* Read-only page can be discarded (reload from file) */
-          spt_entry->loaded = false;
-          spt_entry->kpage = NULL;
-        }
-    }
-  
-  /* Clear page from page table */
+  /* Clear page table entry */
   pagedir_clear_page(pd, upage);
   
-  /* Move clock hand to next frame */
+  /* Move clock hand */
   clock_hand = list_next(&victim->elem);
   if (clock_hand == list_end(&frame_table))
     clock_hand = list_begin(&frame_table);
@@ -246,7 +203,50 @@ evict_frame(void)
   list_remove(&victim->elem);
   free(victim);
   
-  lock_release(&frame_lock);
+  /* NOW re-enable interrupts before any I/O or lock operations */
+  intr_set_level(old_level);
+  
+  /* Handle eviction with locks allowed */
+  struct spt_entry *spt_entry = spt_get_entry(&owner->spt, upage);
+  
+  if (spt_entry != NULL)
+    {
+      lock_acquire(&owner->spt.lock);
+      
+      if (spt_entry->type == PAGE_MMAP)
+        {
+          spt_entry->loaded = false;
+          spt_entry->kpage = NULL;
+          lock_release(&owner->spt.lock);
+          
+          if (dirty)
+            {
+              lock_acquire(&file_lock);
+              file_seek(spt_entry->file, spt_entry->file_offset);
+              file_write(spt_entry->file, kpage, spt_entry->read_bytes);
+              lock_release(&file_lock);
+            }
+        }
+      else if (dirty || spt_entry->writable)
+        {
+          lock_release(&owner->spt.lock);
+          
+          size_t swap_slot = swap_out(kpage);
+          
+          lock_acquire(&owner->spt.lock);
+          spt_entry->type = PAGE_SWAP;
+          spt_entry->swap_slot = swap_slot;
+          spt_entry->loaded = false;
+          spt_entry->kpage = NULL;
+          lock_release(&owner->spt.lock);
+        }
+      else
+        {
+          spt_entry->loaded = false;
+          spt_entry->kpage = NULL;
+          lock_release(&owner->spt.lock);
+        }
+    }
   
   return kpage;
 }
