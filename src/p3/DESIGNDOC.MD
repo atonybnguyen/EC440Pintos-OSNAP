@@ -153,7 +153,7 @@ In the case that a frame is required, but none is free, then we would choose a n
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
-In order to adjust the page table to reflect that, in evict_frame(), we had cleared Q's page by removing the virtual to physical mapping so then Q can no longer access that frame through it's original address. This would resolve any issue for when process P obtains that previeously held frame.
+In order to adjust the page table to reflect that, in evict_frame(), we had cleared Q's page by removing the virtual to physical mapping so then Q can no longer access that frame through it's original address. We would then update Q's SPT entry to show that it is no longer in memoryu to reflect this change as well. This would resolve any issue for when process P obtains that previeously held frame.
 
 ---- SYNCHRONIZATION ----
 
@@ -170,7 +170,7 @@ For synchronization, in order to prevent deadlock, we had decided to use interru
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
 
-In order to ensure that Q cannot access or modify the page during the eviction process because pagedir_clear_page() is an atomic process so it will run to completion prior to Q having the chance to modify the page. In order to avoid a race between P evicting Q's frame and Q faulting the page, we disable interrupts so then Q would not be able to execute until the process is done
+In order to ensure that Q cannot access or modify the page during the eviction process, we had disable interrupt for pagedir_clear_page() to run to completion prior to Q having the chance to modify the page. In order to avoid a race between P evicting Q's frame and Q faulting the page, we disable interrupts so then Q would not be able to execute until the process is done
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
