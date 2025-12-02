@@ -18,15 +18,15 @@ swap_init(void)
 {
   swap_block = block_get_role(BLOCK_SWAP);
   if (swap_block == NULL)
-    PANIC("No swap partition found");
-  
+    return; 
+    
   /* Calculate number of pages that fit in swap */
   size_t swap_size = block_size(swap_block) / SECTORS_PER_PAGE;
   
   /* Create bitmap to track free slots */
-  swap_table = bitmap_create(swap_size);
-  if (swap_table == NULL)
-    PANIC("Failed to create swap table bitmap");
+  swap_table = bitmap_create(swap_size);  
+  if (swap_table != NULL)
+    bitmap_set_all(swap_table, false);
   
   lock_init(&swap_lock);
 }
@@ -39,8 +39,10 @@ swap_out(void *kpage)
   
   /* Find free swap slot */
   size_t slot = bitmap_scan_and_flip(swap_table, 0, 1, false);
-  if (slot == BITMAP_ERROR)
+  if (slot == BITMAP_ERROR){
+    lock_release(&swap_lock);
     PANIC("Swap partition is full");
+  }
   
   /* Write page to swap (one page = 8 sectors) */
   for (size_t i = 0; i < SECTORS_PER_PAGE; i++)
@@ -61,8 +63,10 @@ swap_in(size_t slot, void *kpage)
   lock_acquire(&swap_lock);
   
   /* Check if slot is in use */
-  if (!bitmap_test(swap_table, slot))
+  if (!bitmap_test(swap_table, slot)){
+    lock_release(&swap_lock);
     PANIC("Reading from free swap slot");
+  }
   
   /* Read page from swap (one page = 8 sectors) */
   for (size_t i = 0; i < SECTORS_PER_PAGE; i++)

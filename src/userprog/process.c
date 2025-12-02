@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 
 /* Include for Lab 2*/
 #include "threads/malloc.h"
@@ -364,13 +365,16 @@ load (const char *file_name, void (**eip) (void), void **esp)
   spt_init(&t->spt);
 #endif
 
+  lock_acquire(&file_lock);
   file = filesys_open (file_name);
   if (file == NULL) 
     {
+      lock_release(&file_lock);
       printf ("load: %s: open failed\n", file_name);
       goto done; 
     }
 
+    file_deny_write(file);
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
       || ehdr.e_type != 2
@@ -380,6 +384,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phnum > 1024) 
     {
       printf ("load: %s: error loading executable\n", file_name);
+      file_close (file);
+      lock_release(&file_lock);
       goto done; 
     }
 
@@ -436,6 +442,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
         }
     }
 
+  lock_release(&file_lock);
   if (!setup_stack (esp))
     goto done;
 
@@ -447,10 +454,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   if (!success){
     file_close (file);
   }
-  else{
-    t->executable = file;
-    file_deny_write(file);
-  }  
+  else t->executable = file;
   return success;
 }
 
