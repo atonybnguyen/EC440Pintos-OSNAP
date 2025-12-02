@@ -172,6 +172,8 @@ spt_get_entry(struct spt *spt, void *upage)
   struct spt_entry dummy;
   dummy.upage = pg_round_down(upage);
   
+  /* Note: We don't acquire lock here - caller must ensure safety
+     For eviction, the entry won't be freed while we're evicting it */
   struct hash_elem *e = hash_find(&spt->table, &dummy.elem);
   if (e == NULL)
     return NULL;
