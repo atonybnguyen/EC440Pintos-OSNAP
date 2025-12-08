@@ -132,7 +132,6 @@ find_frame(void *kpage)
 }
 
 /* Evict a frame using clock algorithm */
-/* Evict a frame using clock algorithm */
 static void *
 evict_frame(void)
 {
