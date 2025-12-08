@@ -199,9 +199,6 @@ evict_frame(void)
   list_remove(&victim->elem);
   free(victim);
   
-  /* Re-enable interrupts */
-  intr_set_level(old_level);
-  
   /* Update SPT */
   struct spt_entry *spt_entry = spt_get_entry(&owner->spt, upage);
   
@@ -239,6 +236,9 @@ evict_frame(void)
           lock_release(&owner->spt.lock);
         }
     }
+  
+  /* Re-enable interrupts at the very end */
+  intr_set_level(old_level);
   
   return kpage;
 }
