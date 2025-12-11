@@ -34,7 +34,7 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> enumeration.  Identify the purpose of each in 25 words or less.
 > 
 > uint8_t *upage (declared in process.c)
-> This is a pointer too the user virtual address of the page loaded in the load_segment process
+> This is a pointer to the user virtual address of the page loaded in the load_segment process
 
 ---- ALGORITHMS ----
 
@@ -55,15 +55,25 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+> struct spt_entry (page.h)
+> we added PAGE_MMAP to the page_type enum to distinguish memory mapped files
+> the struct tracks the file, file_offset, read_bytes, and mapid for the mapping
 
 ---- ALGORITHMS ----
 
 >> B2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
+> our memory mapped files are lazily loaded, sys_mmap initializes the entries into the spt with the type PAGE_MMAP 
+> but doesn't load the data. When a page fault occurs, spt_load_page identifies the page map type and reads the data 
+> directly from the backing file into a frame. Our eviction process writes dirty anonymous pages into the swap partition
+> and the dirty page_mmap pages are written back into their original file using file_write_at. Clean mmap pages are discarded
 
 >> B3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
+> in sys_mmap, we calculated the number of pages required based on the file length, then we iterated through
+> each virtual page address in the range. For each page we check if it exists in the pagedir or spt. If theres a collision
+> the mapping is rejected.
 
 ---- RATIONALE ----
 
@@ -73,6 +83,10 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+> our implementation of the code shares a significant amoutn of code. The spt_entry is used for PAGE_FILE and PAGE_MMAP. 
+> In spt_load_page both types share the same logic when acquiring the file lock. The primary difference is that during 
+> eviction and unmapping, our PAGE_MMAP checks the dirty part and writes to the file, while PAGE_FILE are used read-only or private to swap
+> 
 
           SURVEY QUESTIONS
           ================
