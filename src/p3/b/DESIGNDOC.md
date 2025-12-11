@@ -34,20 +34,19 @@ Jeehan Zaman <jeehanz@bu.edu>
 >> enumeration.  Identify the purpose of each in 25 words or less.
 > 
 > uint8_t *upage (declared in process.c)
-> This is a pointer to the user page. 
+> This is a pointer too the user virtual address of the page loaded in the load_segment process
 
 ---- ALGORITHMS ----
 
 >> A2: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
->  When the invalid memory access is within 32 bytes below the current stack pointer
->  the function assumes that it's a valid stack growth request and allocate a new page. 
->  However, in our exception.c we first determine whether the fault is near the stack pointer
->  if so then, we check whether it exceeds the stack size limit and attempts to allocate a new zeroed page
->  Involving the kernel to analyze the instruction that faulted would add considerable overhead to each page fault, costing performance
-> 
-
+> We decided that a page fault is a valid stack growth request if the address
+> is either above or within the current stack pointer (esp) or within 32 bytes below the pointer
+> The address must also be below PHYS_BASE and above the user code and within the max stack size of 8MB.
+> When the conditions are met it indicates that the user program is trying to extend the stack. 
+> If the stack limit hasn't been exceeded we allocated a zeroed page and update the spt.
+ 
           MEMORY MAPPED FILES
           ===================
 
